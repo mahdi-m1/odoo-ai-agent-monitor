@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>دردشة الوكيل</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="top">
+    <h1>الدردشة مع الوكيل</h1>
+    <nav>
+      <a href="/">الرئيسية</a>
+      <a href="/chat">الدردشة</a>
+      <a href="/dashboard">لوحة التحكم</a>
+    </nav>
+  </header>
+  <main class="chat-layout">
+    <div id="messages" class="messages"></div>
+    <form id="chat-form" class="chat-input">
+      <input id="chat-message" type="text" placeholder="اكتب أمراً… قائمة | أضف شركة: ... | تقرير" autocomplete="off" required />
+      <button type="submit">إرسال</button>
+    </form>
+    <p class="hint">مساعدة · قائمة · حالة · أضف شركة · تقرير أسبوعي</p>
+  </main>
+  <script>
+    const box = document.getElementById('messages');
+    const form = document.getElementById('chat-form');
+    const input = document.getElementById('chat-message');
+    function addBubble(text, who) {
+      const div = document.createElement('div');
+      div.className = 'bubble ' + who;
+      div.textContent = text;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = input.value.trim();
+      if (!msg) return;
+      addBubble(msg, 'user');
+      input.value = '';
+      addBubble('…', 'bot pending');
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg }),
+        });
+        const data = await res.json();
+        box.querySelector('.pending')?.remove();
+        addBubble(data.reply || JSON.stringify(data), 'bot');
+      } catch (err) {
+        box.querySelector('.pending')?.remove();
+        addBubble('خطأ: ' + err, 'bot');
+      }
+    });
+  </script>
+</body>
+</html>
