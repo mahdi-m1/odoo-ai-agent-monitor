@@ -1,16 +1,32 @@
 # المعمارية — Odoo 20 Enterprise
 
+## الطبقات
+
 ```
-[ متصفح / Claude ]
-      │
-[ FastAPI + agent ] LXC
-  Claude CLI · Monitors · Reports · MCP agent
-      │ JSON-2
+[ مستخدم / Claude ]
+        │
+        ├──────────────────┐
+        ▼                  ▼
+[ واجهة FastAPI ]   [ MCP Agent / MCP أصلي ]
+   داخل LXC              /mcp على Odoo
+        │
+        ▼
+[ AI Agent ]
+  Claude CLI · Monitors · Reports · OdooTools
+        │  JSON-2
+        ▼
 [ Odoo 20 Enterprise ]
-  partners · activities · CRM · /mcp · AI Agents
+  res.partner · mail.activity · note.note · crm.lead
 ```
 
-وكيل LXC = مصادر خارجية + تقارير.
-Odoo = CRM ومصدر الحقيقة.
-JSON-2 = الكتابة/القراءة من الوكيل.
-MCP الأصلي = استعلام اختياري من Claude.
+## تدفق البيانات
+
+1. إضافة شركات/شخصيات من الواجهة أو الدردشة أو MCP
+2. وسم `[AI-MONITOR]` في comment
+3. المراقبات → RSS/مصادر
+4. أنشطة/رسائل على الشريك
+5. تقرير أسبوعي → reports_output + Odoo
+
+## LXC
+
+عزل الوكيل وClaude CLI والواجهة عن سيرفر Odoo الإنتاجي.

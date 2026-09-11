@@ -4,23 +4,33 @@
 
 ## الهدف
 
-- **Odoo 20 Enterprise**: CRM + Contacts + Activities
-- **وكيل AI في LXC**: مصادر خارجية + إدخال Odoo + تقارير
-- **واجهة ويب منفصلة** داخل LXC
-- **Claude CLI** (اشتراك شهري)
-- **MCP**: خادم الوكيل + MCP الأصلي Enterprise (`/mcp`)
+طبقة Agent تجمع بيانات من مصادر خارجية، تدخلها في Odoo CRM، وتصدر تقارير دورية — مع واجهة دردشة منفصلة داخل **LXC**.
 
-## المعمارية
+| المهمة | الوصف |
+|--------|--------|
+| تعيينات / ترقيات / استقالات / صفقات | مراقبة الجهات في القائمة |
+| تصريحات مالية واستراتيجية | شركات وأشخاص مضافون من الواجهة |
+| تشريعات وقوانين | ما يؤثر على الجهات المراقبة |
+| تقارير أسبوعية + مخصصة | Claude CLI + تسجيل في Odoo |
+
+## المعمارية (Odoo 20 Enterprise)
 
 ```
-[ واجهة ويب + Claude ]  ← LXC
-        │ JSON-2 API Key
-        ▼
-[ Odoo 20 Enterprise ]
-  CRM · MCP أصلي /mcp · AI Agents
+Claude CLI / Claude Desktop
+        │
+   ┌────┴────┐
+   │         │
+   ▼         ▼
+MCP Agent   MCP أصلي Odoo (/mcp)
+(LXC)       قراءة/استعلام CRM
+   │
+   │ JSON-2 + API Key
+   ▼
+Odoo 20 Enterprise
+CRM · Contacts · Activities · AI Agents
 ```
 
-## التثبيت
+## التثبيت السريع
 
 ```bash
 git clone https://github.com/mahdi-m1/odoo-ai-agent-monitor.git
@@ -30,12 +40,11 @@ cp .env.example .env
 # ODOO_URL, ODOO_DB, ODOO_API_KEY, ODOO_PROTOCOL=json2
 ```
 
-### API Key (Enterprise 20)
+### مفتاح API
 
-Preferences → Account Security → New API Key → `ODOO_API_KEY`  
-اختبار: `https://YOUR-ODOO/doc`
+Preferences → Account Security → New API Key → `ODOO_API_KEY`
 
-### تشغيل
+### التشغيل
 
 ```bash
 uvicorn web.app:app --host 0.0.0.0 --port 8080
@@ -46,7 +55,17 @@ python -m agent.mcp_server
 
 ## أوامر الوكيل
 
-مساعدة | قائمة | حالة | أضف شركة: الاسم، الدولة | أضف شخص: ... | تقرير | راقب أخبار | راقب تعيينات | عدّل ID: phone=...
+```
+مساعدة | قائمة | حالة
+أضف شركة: بنك البحرين الوطني، Bahrain
+أضف شخص: أحمد، بنك البحرين الوطني، مدير
+تقرير | راقب أخبار | راقب تعيينات
+عدّل 12: phone=+973...
+```
+
+## MCP
+
+`config/claude_mcp.example.json` — وكيل المراقبة + MCP الأصلي `/mcp`
 
 ## التوثيق
 
@@ -54,8 +73,9 @@ python -m agent.mcp_server
 - docs/DEPLOYMENT.md
 - docs/ODOO20_JSON2.md
 - docs/USER_GUIDE.md
-- config/claude_mcp.example.json
 
 ## الترخيص
 
-MIT — https://github.com/mahdi-m1/odoo-ai-agent-monitor
+MIT — مشروع تخرج.
+
+**المستودع:** https://github.com/mahdi-m1/odoo-ai-agent-monitor
