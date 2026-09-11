@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>لوحة التحكم</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="top">
+    <h1>لوحة التحكم</h1>
+    <nav>
+      <a href="/">الرئيسية</a>
+      <a href="/chat">الدردشة</a>
+      <a href="/dashboard">لوحة التحكم</a>
+    </nav>
+  </header>
+  <main class="grid">
+    <section class="card full">
+      <h2>طلب تقرير</h2>
+      <form id="report-form" class="form">
+        <input name="focus" placeholder="تركيز اختياري (مثال: البنوك في البحرين)" />
+        <button type="submit">إنشاء تقرير الآن</button>
+      </form>
+      <pre id="report-result" class="result"></pre>
+    </section>
+    <section class="card">
+      <h2>التقارير المحفوظة</h2>
+      <ul>
+        {% for r in reports %}
+        <li>{{ r }}</li>
+        {% else %}
+        <li>لا توجد تقارير بعد.</li>
+        {% endfor %}
+      </ul>
+    </section>
+    <section class="card">
+      <h2>الجهات ({{ partners|length }})</h2>
+      <ul>
+        {% for p in partners %}
+        <li>#{{ p.id }} — {{ p.name }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </main>
+  <script>
+    document.getElementById('report-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const out = document.getElementById('report-result');
+      out.textContent = 'جاري إنشاء التقرير…';
+      const res = await fetch('/api/report', { method: 'POST', body: fd });
+      const data = await res.json();
+      out.textContent = data.report || JSON.stringify(data, null, 2);
+    });
+  </script>
+</body>
+</html>
