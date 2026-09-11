@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "odoo-ai-agent-monitor": {
+      "command": "python",
+      "args": ["-m", "agent.mcp_server"],
+      "cwd": "/opt/odoo-ai-agent-monitor",
+      "env": {
+        "ODOO_URL": "https://your-company.odoo.com",
+        "ODOO_DB": "your_database",
+        "ODOO_API_KEY": "YOUR_API_KEY",
+        "ODOO_PROTOCOL": "json2"
+      }
+    },
+    "odoo-native-mcp": {
+      "url": "https://your-company.odoo.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}

@@ -1,39 +1,24 @@
-# Odoo 19 / 20 — External JSON-2 API
+# Odoo 20 Enterprise — JSON-2 و MCP
 
-## لماذا التحديث؟
-
-| البروتوكول | الحالة في Odoo 19–20 | التوصية |
-|------------|----------------------|---------|
-| XML-RPC `/xmlrpc/2` | مهمل (deprecated) | لا تستخدمه لمشاريع جديدة |
-| JSON-RPC `/jsonrpc` | مهمل | لا تستخدمه لمشاريع جديدة |
-| **JSON-2 `/json/2`** | المعيار الرسمي منذ 19 | **استخدمه** |
-
-هذا المشروع يستخدم **JSON-2** افتراضياً (`ODOO_PROTOCOL=json2`).
-
-## الشكل
-
-```
+## JSON-2
 POST /json/2/<model>/<method>
 Authorization: bearer <API_KEY>
-X-Odoo-Database: <dbname>   # إن لزم
-Content-Type: application/json; charset=utf-8
+X-Odoo-Database: <db>
 
-{
-  "domain": [...],
-  "fields": [...],
-  "limit": 20
-}
+```python
+from agent.odoo_client import OdooClient
+print(OdooClient().health_check())
 ```
 
-## إنشاء API Key
+## MCP الأصلي
+موديول ai_mcp → endpoint /mcp (قراءة أولاً)
 
-1. Odoo → Preferences → Account Security → New API Key
-2. انسخ المفتاح إلى `ODOO_API_KEY` في `.env`
-
-وثائق تفاعلية: `https://your-odoo/doc`
-
-## MCP
-
+## MCP الوكيل
 ```bash
 python -m agent.mcp_server
+```
+
+```env
+ODOO_PROTOCOL=json2
+ODOO_API_KEY=...
 ```

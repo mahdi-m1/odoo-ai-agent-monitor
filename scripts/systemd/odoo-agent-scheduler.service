@@ -1,0 +1,15 @@
+[Unit]
+Description=Odoo AI Agent Scheduler
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/odoo-ai-agent-monitor
+Environment=PATH=/opt/odoo-ai-agent-monitor/venv/bin
+EnvironmentFile=-/opt/odoo-ai-agent-monitor/.env
+ExecStart=/opt/odoo-ai-agent-monitor/venv/bin/python -m agent.scheduler
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

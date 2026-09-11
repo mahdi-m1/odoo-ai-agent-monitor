@@ -1,40 +1,16 @@
-# المعمارية — Odoo AI Agent Monitor
-
-## الطبقات
+# المعمارية — Odoo 20 Enterprise
 
 ```
-[ متصفح المستخدم ]
-        │
-        ▼
-[ واجهة ويب FastAPI ]  ◄── داخل LXC
-        │
-        ▼
-[ AI Agent ]
-   ├── Claude CLI (اشتراك شهري)
-   ├── OdooTools (XML-RPC)
-   ├── Monitors (أخبار / تعيينات / تشريعات)
-   └── WeeklyReportGenerator
-        │
-        ▼
-[ خادم Odoo ]  ◄── خارج LXC عادةً
-   CRM · Contacts · Activities · Notes
+[ متصفح / Claude ]
+      │
+[ FastAPI + agent ] LXC
+  Claude CLI · Monitors · Reports · MCP agent
+      │ JSON-2
+[ Odoo 20 Enterprise ]
+  partners · activities · CRM · /mcp · AI Agents
 ```
 
-## تدفق البيانات
-
-1. المستخدم يضيف شركات/شخصيات عبر الواجهة أو الدردشة.
-2. السجلات تُوسم بـ `[AI-MONITOR]` في حقل التعليق.
-3. المراقبات تقرأ القائمة وتبحث في RSS/المصادر.
-4. الأحداث تُسجَّل كـ Activities أو Messages على `res.partner`.
-5. التقرير الأسبوعي يُنشأ عبر Claude ويُحفظ في `reports_output/`.
-
-## لماذا LXC؟
-
-- عزل بيئة الوكيل عن Odoo الإنتاجي.
-- تثبيت Claude CLI واعتماديات Python دون تلويث المضيف.
-- واجهة ويب منفصلة على منفذ مخصص (مثلاً 8080).
-
-## حدود معروفة (مقصودة لمشروع تخرج)
-
-- LinkedIn/Social: هيكل جاهز للتوسيع؛ الجمع الآلي الكامل يتطلب APIs رسمية.
-- مطابقة التشريعات: كلمات مفتاحية بسيطة + مقتطفات صفحات.
+وكيل LXC = مصادر خارجية + تقارير.
+Odoo = CRM ومصدر الحقيقة.
+JSON-2 = الكتابة/القراءة من الوكيل.
+MCP الأصلي = استعلام اختياري من Claude.
