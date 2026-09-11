@@ -1,0 +1,56 @@
+# إعدادات افتراضية للوكيل
+app:
+  name: "Odoo AI Agent Monitor"
+  language: "ar"
+  timezone: "Asia/Bahrain"
+
+odoo:
+  models:
+    partner: "res.partner"
+    activity: "mail.activity"
+    note: "note.note"
+    lead: "crm.lead"
+    message: "mail.message"
+
+regions:
+  primary: "Bahrain"
+  gcc:
+    - Bahrain
+    - Saudi Arabia
+    - UAE
+    - Kuwait
+    - Qatar
+    - Oman
+
+sources:
+  bahrain:
+    - name: "Bahrain News Agency"
+      url: "https://www.bna.bh"
+      type: "official"
+    - name: "Gulf Daily News"
+      url: "https://www.gdnonline.com"
+      type: "news"
+  gcc_general:
+    - name: "Arab News"
+      url: "https://www.arabnews.com"
+      type: "news"
+    - name: "Gulf Business"
+      url: "https://gulfbusiness.com"
+      type: "business"
+  legislation:
+    bahrain:
+      - name: "Legislation & Legal Opinion Commission"
+        url: "https://www.lloc.gov.bh"
+
+monitoring:
+  appointments_keywords:
+    ar: ["تعيين", "ترقية", "استقالة", "منصب", "رئيس تنفيذي", "مدير عام", "عضو مجلس"]
+    en: ["appointed", "promotion", "resignation", "CEO", "board member", "executive"]
+  deals_keywords:
+    ar: ["صفقة", "استحواذ", "شراكة", "عقد", "استثمار"]
+    en: ["deal", "acquisition", "partnership", "contract", "investment"]
+
+reports:
+  weekly_day: "sunday"
+  weekly_hour: 8
+  output_dir: "reports_output"
