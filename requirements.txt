@@ -1,15 +1,25 @@
+# Core
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 python-dotenv>=1.0.1
 pyyaml>=6.0.2
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
+
+# HTTP (JSON-2 Odoo API + scraping)
 httpx>=0.27.0
 feedparser>=6.0.11
 beautifulsoup4>=4.12.3
 lxml>=5.3.0
+
+# Scheduling
 apscheduler>=3.10.4
+
+# Utils
 python-dateutil>=2.9.0
 jinja2>=3.1.4
 aiofiles>=24.1.0
 rich>=13.9.0
+
+# MCP — tools for AI agents (Claude Desktop / Claude Code / etc.)
+mcp>=1.0.0
