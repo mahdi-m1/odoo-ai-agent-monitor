@@ -39,6 +39,7 @@
       <button type="button" class="ghost" id="btn-reset">محادثة جديدة</button>
       <button type="button" class="ghost" id="btn-status">تحديث الحالة</button>
     </div>
+    <div id="tasks-panel"></div>
     <div id="messages" class="messages"></div>
     <form id="chat-form" class="chat-input">
       <input id="chat-message" type="text" placeholder="اكتب أمراً أو سؤالاً… (مساعدة | قائمة | مصادر | نموذج sonnet)" autocomplete="off" required />
@@ -126,7 +127,7 @@
         const data = await res.json();
         pending.remove();
         addBubble(data.reply || JSON.stringify(data), 'bot');
-        if (data.task_id) await followTask(data.task_id);
+        if (data.task_id) pollTasks();  // show progress immediately
       } catch (err) {
         pending.remove();
         addBubble('خطأ: ' + err, 'bot');
@@ -136,38 +137,51 @@
         refreshStatus();
       }
     });
-    async function followTask(taskId) {
-      const card = document.createElement('div');
-      card.className = 'bubble bot task-card';
-      card.innerHTML = '<div class="task-bar"><div class="task-fill"></div></div><div class="task-log">جاري البدء…</div>';
-      box.appendChild(card); box.scrollTop = box.scrollHeight;
-      const fill = card.querySelector('.task-fill');
-      const log = card.querySelector('.task-log');
-      for (let i = 0; i < 400; i++) {
-        await new Promise(r => setTimeout(r, 2000));
-        let t;
-        try { t = await (await fetch('/api/chat/task/' + taskId)).json(); } catch (e) { continue; }
-        if (t.error) { log.textContent = 'خطأ: ' + t.error; break; }
-        fill.style.width = Math.round((t.progress || 0) * 100) + '%';
-        const last = (t.log || []).slice(-6).map(l => '• ' + l.msg).join('\n');
-        log.textContent = last || t.status;
-        box.scrollTop = box.scrollHeight;
-        if (t.status === 'done' || t.status === 'error') {
-          const r = t.result || {};
-          fill.style.width = '100%';
-          fill.classList.toggle('bad-fill', t.status === 'error');
-          let summary = r.summary || t.error || t.status;
-          if (r.results) {
-            summary += '\n\n' + r.results.map(x => (x.status.includes('أُضيفت') ? '✅' : x.status.includes('موجودة') ? '↺' : '⚠️') + ' ' + x.company + (x.people ? ' (' + x.people + ' مدير)' : '') + (x.sector ? ' — ' + x.sector : '')).join('\n');
-          }
-          addBubble(summary, 'bot');
-          refreshStatus();
-          break;
+    // Persistent tasks panel — polls all recent tasks, so progress shows even after a page reload.
+    const shownDone = new Set();
+    function renderTasks(tasks) {
+      const panel = document.getElementById('tasks-panel');
+      const active = (tasks || []).filter(t => t.status === 'running' || (Date.now()/1000 - (t.finished || t.started)) < 45);
+      panel.innerHTML = '';
+      active.forEach(t => {
+        const pct = Math.round((t.progress || 0) * 100);
+        const stateIcon = t.status === 'running' ? '⏳' : t.status === 'done' ? '✅' : '⚠️';
+        const div = document.createElement('div');
+        div.className = 'task-card' + (t.status === 'error' ? ' err' : '');
+        div.innerHTML =
+          `<div class="task-head">${stateIcon} ${t.title} — ${t.status === 'running' ? pct + '%' : t.status}</div>` +
+          `<div class="task-bar"><div class="task-fill${t.status === 'error' ? ' bad-fill' : ''}" style="width:${pct}%"></div></div>` +
+          `<div class="task-log">${(t.last_msg || '').replace(/</g,'&lt;')}</div>`;
+        panel.appendChild(div);
+        // When a task finishes, drop its result into the chat once.
+        if ((t.status === 'done' || t.status === 'error') && !shownDone.has(t.id)) {
+          shownDone.add(t.id);
+          fetch('/api/chat/task/' + t.id).then(r => r.json()).then(full => {
+            const r = full.result || {};
+            let summary = r.summary || full.error || full.status;
+            if (r.results && r.results.length) {
+              summary += '\n\n' + r.results.map(x => (x.status.includes('أُضيفت') ? '✅' : x.status.includes('موجودة') ? '↺' : '⚠️') + ' ' + x.company + (x.people ? ' (' + x.people + ' مدير)' : '') + (x.sector ? ' — ' + x.sector : '')).join('\n');
+            }
+            addBubble(summary, 'bot');
+            refreshStatus();
+          });
         }
-      }
+      });
     }
+    let tasksTimer = null;
+    async function pollTasks() {
+      try {
+        const d = await (await fetch('/api/chat/tasks')).json();
+        const withMsg = (d.tasks || []).map(t => ({ ...t }));
+        // fetch last log line for running tasks
+        await Promise.all(withMsg.filter(t => t.status === 'running').map(async t => {
+          try { const f = await (await fetch('/api/chat/task/' + t.id)).json(); t.last_msg = (f.log && f.log.length) ? f.log[f.log.length-1].msg : ''; } catch(e){}
+        }));
+        renderTasks(withMsg);
+        const anyRunning = withMsg.some(t => t.status === 'running');
+        if (anyRunning && !tasksTimer) tasksTimer = setInterval(pollTasks, 3000);
+        if (!anyRunning && tasksTimer) { clearInterval(tasksTimer); tasksTimer = null; }
+      } catch (e) {}
+    }
+    pollTasks();
     loadHistory().then(refreshStatus);
-    setInterval(refreshStatus, 30000);
-  </script>
-</body>
-</html>

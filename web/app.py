@@ -35,7 +35,16 @@ from agent.reports.weekly_report import WeeklyReportGenerator
 from agent.monitors.full_cycle import run_full_monitoring
 from agent.smoke_test import run_smoke
 
-app = FastAPI(title="Odoo AI Agent Monitor", version="1.3.0")
+app = FastAPI(title="Odoo AI Agent Monitor", version="1.4.0")
+
+
+@app.middleware("http")
+async def _no_cache_html(request, call_next):
+    resp = await call_next(request)
+    # HTML pages carry inline JS; never let the browser serve a stale copy.
+    if resp.headers.get("content-type", "").startswith("text/html"):
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(parents=True, exist_ok=True)

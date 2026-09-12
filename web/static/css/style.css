@@ -155,3 +155,8 @@ td .url { font-family: monospace; font-size: 0.8rem; word-break: break-all; colo
 .task-fill { height: 100%; width: 0; background: var(--accent); transition: width .4s ease; }
 .task-fill.bad-fill { background: var(--bad); }
 .task-log { font-size: .82rem; color: var(--muted); white-space: pre-wrap; font-family: monospace; }
+
+#tasks-panel { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .5rem; }
+#tasks-panel .task-card { width: 100%; max-width: 100%; background: var(--card); border: 1px solid var(--accent); border-radius: 10px; padding: .6rem .8rem; }
+#tasks-panel .task-card.err { border-color: var(--bad); }
+.task-head { font-weight: 700; font-size: .9rem; margin-bottom: .4rem; }
