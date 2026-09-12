@@ -82,6 +82,7 @@ async def index(request: Request):
     except Exception:
         pass
     return templates.TemplateResponse(
+        request,
         "index.html",
         {"request": request, "health": health, "tree": tree, "claude_ok": agent.claude.available()},
     )
@@ -89,7 +90,7 @@ async def index(request: Request):
 
 @app.get("/chat", response_class=HTMLResponse)
 async def chat_page(request: Request):
-    return templates.TemplateResponse("chat.html", {"request": request})
+    return templates.TemplateResponse(request, "chat.html", {"request": request})
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -102,6 +103,7 @@ async def dashboard(request: Request):
     reports_dir = ROOT / "reports_output"
     reports = sorted(reports_dir.glob("*.md"), reverse=True)[:15] if reports_dir.exists() else []
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {"request": request, "tree": tree, "reports": [r.name for r in reports], "schedule": agent._read_schedule()},
     )

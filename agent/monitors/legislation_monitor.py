@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from agent.tools.odoo_tools import OdooTools
 from agent.tools.search_tools import SearchTools
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,8 @@ LEGISLATION_SOURCES = [
 
 
 class LegislationMonitor:
-    def __init__(self, search: SearchTools | None = None):
+    def __init__(self, odoo: OdooTools | None = None, search: SearchTools | None = None):
+        self.odoo = odoo or OdooTools()
         self.search = search or SearchTools()
 
     def scan_sources(self) -> List[Dict[str, Any]]:
@@ -57,3 +59,25 @@ class LegislationMonitor:
                     item["matched_entity"] = raw
                     matched.append(item)
         return matched
+
+    def run_and_log(self, limit_entities: int = 100) -> Dict[str, Any]:
+        partners = self.odoo.list_monitored(limit=limit_entities)
+        findings = self.scan_sources()
+        matched = self.match_entities(findings, [p.get("name") or "" for p in partners])
+        by_name = {p.get("name"): p.get("id") for p in partners}
+        logged = 0
+        for m in matched[:50]:
+            pid = by_name.get(m.get("matched_entity"))
+            if not pid:
+                continue
+            try:
+                self.odoo.log_event(
+                    pid,
+                    f"[تشريع] {m.get('source', '')} — {m.get('region', '')}",
+                    f"الرابط: {m.get('url', '')}\nمقتطف: {(m.get('excerpt') or '')[:400]}",
+                    as_activity=True,
+                )
+                logged += 1
+            except Exception as e:
+                logger.warning("Failed to log legislation for partner %s: %s", pid, e)
+        return {"sources": len(findings), "matched": len(matched), "logged": logged, "sample": matched[:5]}
