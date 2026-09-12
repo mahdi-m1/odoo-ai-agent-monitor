@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -236,7 +237,25 @@ def dashboard(request: Request):
 
 @app.post("/api/chat")
 def api_chat(body: ChatRequest):
-    return {"reply": agent.handle(body.message), "claude": agent.claude.last, "model": agent.claude.model}
+    reply = agent.handle(body.message)
+    task_id = None
+    m = re.match(r"\x00TASK:([0-9a-f]+)\x00(.*)", reply, re.S)
+    if m:
+        task_id, reply = m.group(1), m.group(2)
+    return {"reply": reply, "task_id": task_id, "claude": agent.claude.last, "model": agent.claude.model}
+
+
+@app.get("/api/chat/task/{task_id}")
+def api_chat_task(task_id: str):
+    t = agent.task_status(task_id)
+    if not t:
+        return JSONResponse({"error": "مهمة غير معروفة"}, status_code=404)
+    return t
+
+
+@app.get("/api/chat/tasks")
+def api_chat_tasks():
+    return {"tasks": agent.list_tasks()}
 
 
 @app.get("/api/chat/history")

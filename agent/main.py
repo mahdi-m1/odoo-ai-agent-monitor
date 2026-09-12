@@ -6,11 +6,15 @@ import json
 import logging
 import os
 import re
+import threading
+import time
+import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from agent import actions
 from agent import agent_settings, backup as backup_mod
 
 
@@ -44,6 +48,8 @@ class AIAgent:
         self.sources = SourceStore()
         self.memory = get_memory()
         self.history: list[dict] = []  # last exchanges, shown in the UI and used as fallback context
+        self.tasks: Dict[str, Dict[str, Any]] = {}  # background action jobs (research/insert)
+        self._tasks_lock = threading.Lock()
 
     def status(self) -> Dict[str, Any]:
         return {
@@ -65,6 +71,15 @@ class AIAgent:
         local = self._try_local_commands(msg)
         if local is not None:
             return local
+        # Direct agentic action (research companies + insert into Odoo) → background task
+        act = self._detect_action(msg)
+        if act and act["kind"] == "companies":
+            query = "أكبر الشركات في البحرين ومديريها التنفيذيين" if ("البحرين" in msg or "bahrain" in msg.lower()) else msg
+            tid = self.start_task("companies", f"بحث وإدراج {act['count']} شركة", 
+                lambda progress, q=query, n=act["count"]: actions.research_and_add_companies(
+                    self.claude, self.odoo, self.memory, q, count=n, model=self.claude.model, progress=progress))
+            return f"\u0000TASK:{tid}\u0000بدأت مهمة: البحث عن {act['count']} شركة ومديريها وإدراجها في قاعدة البيانات. تابع التقدّم أدناه."
+
         # "جديد: ..." / "بدون ذاكرة ..." bypass the answer cache for this question
         fresh = False
         m = re.match(r"^(?:جديد|بدون\s+ذاكرة|fresh|nocache)\s*[:：]?\s*(.+)$", msg, re.I | re.S)
@@ -114,6 +129,67 @@ class AIAgent:
             logger.warning("memory write failed: %s", e)
         return reply
 
+    # ---- background tasks (long agentic actions that must not block the HTTP request) ----
+    def _new_task(self, kind: str, title: str) -> str:
+        tid = uuid.uuid4().hex[:12]
+        with self._tasks_lock:
+            self.tasks[tid] = {"id": tid, "kind": kind, "title": title, "status": "running",
+                               "progress": 0.0, "log": [], "result": None, "error": None,
+                               "started": time.time(), "finished": None}
+        return tid
+
+    def _task_progress(self, tid: str, msg: str, pct: Optional[float]) -> None:
+        with self._tasks_lock:
+            t = self.tasks.get(tid)
+            if t:
+                t["log"].append({"at": time.strftime("%H:%M:%S"), "msg": msg})
+                t["log"] = t["log"][-40:]
+                if pct is not None:
+                    t["progress"] = round(pct, 3)
+
+    def _run_task(self, tid: str, fn) -> None:
+        try:
+            result = fn(lambda m, p=None: self._task_progress(tid, m, p))
+            with self._tasks_lock:
+                t = self.tasks[tid]
+                t["status"] = "done" if result.get("ok") else "error"
+                t["result"] = result
+                t["error"] = result.get("error")
+                t["progress"] = 1.0
+                t["finished"] = time.time()
+        except Exception as e:
+            logger.exception("task %s failed", tid)
+            with self._tasks_lock:
+                t = self.tasks[tid]
+                t["status"] = "error"; t["error"] = str(e); t["finished"] = time.time()
+
+    def start_task(self, kind: str, title: str, fn) -> str:
+        tid = self._new_task(kind, title)
+        threading.Thread(target=self._run_task, args=(tid, fn), daemon=True, name=f"task-{tid}").start()
+        return tid
+
+    def task_status(self, tid: str) -> Optional[Dict[str, Any]]:
+        with self._tasks_lock:
+            t = self.tasks.get(tid)
+            return dict(t) if t else None
+
+    def list_tasks(self, limit: int = 20) -> List[Dict[str, Any]]:
+        with self._tasks_lock:
+            ts = sorted(self.tasks.values(), key=lambda x: x["started"], reverse=True)[:limit]
+            return [{k: v for k, v in t.items() if k != "log"} for t in ts]
+
+    def _detect_action(self, msg: str) -> Optional[Dict[str, Any]]:
+        """Recognize 'research + add companies' intents so they run as a direct action, not just chat."""
+        low = msg.lower()
+        has_add = any(w in msg for w in ("أدرج", "ادرج", "أضف", "اضف", "احفظ", "سجّل", "سجل", "أدخل", "ادخل")) or "add" in low
+        has_fetch = any(w in msg for w in ("اجلب", "أجلب", "ابحث", "جد", "هات")) or any(w in low for w in ("fetch", "search", "find"))
+        has_companies = any(w in msg for w in ("شركات", "شركة", "مؤسسات", "بنوك")) or "compan" in low
+        if has_companies and (has_add or (has_fetch and ("قاعدة" in msg or "database" in low or "odoo" in low or has_add))):
+            mnum = re.search(r"(\d{1,3})", msg)
+            count = min(int(mnum.group(1)), 40) if mnum else 10
+            return {"kind": "companies", "count": count, "query": msg}
+        return None
+
     def _try_local_commands(self, msg: str) -> Optional[str]:
         lower = msg.lower().strip()
 
@@ -143,6 +219,7 @@ class AIAgent:
                 "- ذاكرة : إحصاءات الذاكرة | ابحث في الذاكرة: ... | تذكر: حقيقة [عن: الجهة]\n"
                 "- أرشف الذاكرة : تدريج وأرشفة وتلخيص | جديد: سؤال : تجاوز الإجابات المحفوظة\n"
                 "- نسخة احتياطية : الآن | النسخ : القائمة | جدول النسخ daily 3 : التكرار (off|hourly|every6h|daily|weekly)\n"
+                "- تنفيذ مباشر: «ابحث واجلب أكبر 10 شركات في البحرين ومديريها وأدرجهم» → يبحث ويُدرجهم في Odoo\n"
                 "- اختبار / smoke : اختبار دخان بدون توكنات Claude"
             )
 

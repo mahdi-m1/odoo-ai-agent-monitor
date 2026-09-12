@@ -86,8 +86,14 @@ class ClaudeCLI:
         }
 
     # ---- calls ----
-    def _base_cmd(self, prompt: str, system: Optional[str], json_out: bool, model: Optional[str] = None) -> List[str]:
-        cmd: List[str] = [self._resolved, "-p", prompt, "--disallowedTools", DENIED_TOOLS]
+    def _base_cmd(self, prompt: str, system: Optional[str], json_out: bool, model: Optional[str] = None,
+                  allowed_tools: Optional[List[str]] = None) -> List[str]:
+        cmd: List[str] = [self._resolved, "-p", prompt]
+        if allowed_tools:
+            # Filesystem/shell stay denied; only the explicitly-allowed (read-only web) tools are enabled.
+            cmd += ["--allowedTools", *allowed_tools, "--disallowedTools", DENIED_TOOLS]
+        else:
+            cmd += ["--disallowedTools", DENIED_TOOLS]
         if json_out:
             cmd += ["--output-format", "json"]
         if system:
@@ -99,17 +105,19 @@ class ClaudeCLI:
             cmd += ["--effort", effort]
         return cmd
 
-    def complete(self, prompt: str, system: Optional[str] = None, keep_session: bool = False, model: Optional[str] = None) -> str:
+    def complete(self, prompt: str, system: Optional[str] = None, keep_session: bool = False,
+                 model: Optional[str] = None, allowed_tools: Optional[List[str]] = None, timeout: Optional[int] = None) -> str:
         """Single-shot completion. With keep_session=True the conversation continues across calls.
-        `model` overrides the configured model for this call only (e.g. a cheap model for summaries)."""
+        `model` overrides the configured model for this call only. `allowed_tools` enables specific
+        read-only tools (e.g. ["WebSearch","WebFetch"]) for research; shell/fs stay denied."""
         if not self.available():
             raise RuntimeError(f"Claude CLI غير موجود في '{self.cli_path}'. ثبّت Claude Code وسجّل الدخول بـ `claude`.")
-        cmd = self._base_cmd(prompt, system, json_out=True, model=model)
+        cmd = self._base_cmd(prompt, system, json_out=True, model=model, allowed_tools=allowed_tools)
         if keep_session and self.session_id:
             cmd += ["--resume", self.session_id]
         started = datetime.now()
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, env=os.environ.copy())
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout or self.timeout, env=os.environ.copy())
         except FileNotFoundError:
             raise RuntimeError(f"Claude CLI غير موجود في '{self.cli_path}'.")
         except subprocess.TimeoutExpired:

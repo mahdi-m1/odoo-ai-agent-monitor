@@ -126,6 +126,7 @@
         const data = await res.json();
         pending.remove();
         addBubble(data.reply || JSON.stringify(data), 'bot');
+        if (data.task_id) await followTask(data.task_id);
       } catch (err) {
         pending.remove();
         addBubble('خطأ: ' + err, 'bot');
@@ -135,6 +136,36 @@
         refreshStatus();
       }
     });
+    async function followTask(taskId) {
+      const card = document.createElement('div');
+      card.className = 'bubble bot task-card';
+      card.innerHTML = '<div class="task-bar"><div class="task-fill"></div></div><div class="task-log">جاري البدء…</div>';
+      box.appendChild(card); box.scrollTop = box.scrollHeight;
+      const fill = card.querySelector('.task-fill');
+      const log = card.querySelector('.task-log');
+      for (let i = 0; i < 400; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        let t;
+        try { t = await (await fetch('/api/chat/task/' + taskId)).json(); } catch (e) { continue; }
+        if (t.error) { log.textContent = 'خطأ: ' + t.error; break; }
+        fill.style.width = Math.round((t.progress || 0) * 100) + '%';
+        const last = (t.log || []).slice(-6).map(l => '• ' + l.msg).join('\n');
+        log.textContent = last || t.status;
+        box.scrollTop = box.scrollHeight;
+        if (t.status === 'done' || t.status === 'error') {
+          const r = t.result || {};
+          fill.style.width = '100%';
+          fill.classList.toggle('bad-fill', t.status === 'error');
+          let summary = r.summary || t.error || t.status;
+          if (r.results) {
+            summary += '\n\n' + r.results.map(x => (x.status.includes('أُضيفت') ? '✅' : x.status.includes('موجودة') ? '↺' : '⚠️') + ' ' + x.company + (x.people ? ' (' + x.people + ' مدير)' : '') + (x.sector ? ' — ' + x.sector : '')).join('\n');
+          }
+          addBubble(summary, 'bot');
+          refreshStatus();
+          break;
+        }
+      }
+    }
     loadHistory().then(refreshStatus);
     setInterval(refreshStatus, 30000);
   </script>
