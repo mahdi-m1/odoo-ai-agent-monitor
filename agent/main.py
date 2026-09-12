@@ -11,8 +11,9 @@ from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
-from agent import agent_settings
+from agent import agent_settings, backup as backup_mod
 from agent.claude_cli import ClaudeCLI, SYSTEM_AGENT
+from agent.memory import get_memory, get_settings as memory_settings
 from agent.sources import SourceStore, discover_feeds
 from agent.tools.odoo_tools import OdooTools
 from agent.monitors.news_monitor import NewsMonitor
@@ -33,6 +34,7 @@ class AIAgent:
         self.odoo = OdooTools()
         self.claude = ClaudeCLI()
         self.sources = SourceStore()
+        self.memory = get_memory()
         self.history: list[dict] = []  # last exchanges, shown in the UI and used as fallback context
 
     def status(self) -> Dict[str, Any]:
@@ -43,6 +45,8 @@ class AIAgent:
             "sources": {"total": len(self.sources.list()), "enabled": len(self.sources.list(enabled=True))},
             "social": {k: v for k, v in agent_settings.get_social().items() if k != "linkedin_token"} | {"linkedin_token_set": bool(agent_settings.get_social()["linkedin_token"])},
             "history_len": len(self.history),
+            "memory": {k: v for k, v in self.memory.stats().items() if k not in ("settings",)},
+            "backup": backup_mod.public_settings(),
         }
 
     def handle(self, message: str) -> str:
@@ -52,14 +56,26 @@ class AIAgent:
         local = self._try_local_commands(msg)
         if local is not None:
             return local
-        reply = self._ask_claude(msg)
+        # "جديد: ..." / "بدون ذاكرة ..." bypass the answer cache for this question
+        fresh = False
+        m = re.match(r"^(?:جديد|بدون\s+ذاكرة|fresh|nocache)\s*[:：]?\s*(.+)$", msg, re.I | re.S)
+        if m:
+            fresh, msg = True, m.group(1).strip()
+        reply = self._ask_claude(msg, fresh=fresh)
         self.history.append({"user": msg, "agent": reply[:2000]})
         self.history = self.history[-20:]
         return reply
 
-    def _ask_claude(self, msg: str) -> str:
+    def _ask_claude(self, msg: str, fresh: bool = False) -> str:
         if not self.claude.available():
             return "Claude CLI غير مثبت أو غير مسجّل الدخول. الأوامر المحلية متاحة — اكتب «مساعدة»."
+        # 1) Reuse a recent answer to a near-identical question (0 tokens)
+        if not fresh:
+            cached = self.memory.qa_lookup(msg)
+            if cached:
+                when = (cached.get("created_at") or "")[:16].replace("T", " ")
+                return f"{cached['meta'].get('answer', '')}\n\n🧠 إجابة من الذاكرة ({when}، تطابق {cached.get('score', 0):.2f}). للإجابة الجديدة اكتب: جديد: {msg[:60]}"
+        # 2) Compact, relevant context only (memory recall instead of dumping everything)
         try:
             partners = self.odoo.list_monitored(limit=15)
             ctx = "الجهات المراقبة حالياً في Odoo:\n" + "\n".join(
@@ -67,17 +83,27 @@ class AIAgent:
             )
         except Exception as e:
             ctx = f"(تعذر قراءة Odoo: {e})"
-        feeds = ", ".join(f["name"] for f in self.sources.enabled_feeds()) or "لا توجد"
+        feeds = ", ".join(f["name"] for f in self.sources.enabled_search() + self.sources.enabled_feeds()) or "لا توجد"
+        recalled = self.memory.recall_context(msg)
         system = (
             SYSTEM_AGENT
             + f"\n{ctx}\nالقنوات المفعّلة للبحث: {feeds}\n"
-            "الأوامر المحلية التي يمكن للمستخدم كتابتها مباشرة: قائمة، أضف شركة، أضف شخص، تقرير، راقب أخبار، مصادر، نموذج، حالة."
-            "\nأجب بالعربية وبإيجاز عملي."
+            + (recalled + "\n" if recalled else "")
+            + "الأوامر المحلية التي يمكن للمستخدم كتابتها مباشرة: قائمة، أضف شركة، أضف شخص، تقرير، راقب أخبار، مصادر، نموذج، حالة، تذكر."
+            "\nأجب بالعربية وبإيجاز عملي. إن كانت الإجابة موجودة في الذاكرة فاعتمد عليها واذكر تاريخها."
         )
         try:
-            return self.claude.complete(msg, system=system, keep_session=True)
+            reply = self.claude.complete(msg, system=system, keep_session=True)
         except Exception as e:
             return f"تعذر استدعاء Claude CLI: {e}\nاستخدم الأوامر المحلية (مساعدة)."
+        # 3) Learn from the exchange
+        try:
+            self.memory.remember_episode(msg, reply, meta={"model": self.claude.last.get("model_used")})
+            if len(msg.split()) >= 2:  # single words are commands/greetings, not worth caching
+                self.memory.qa_store(msg, reply, model=self.claude.last.get("model_used") or "")
+        except Exception as e:
+            logger.warning("memory write failed: %s", e)
+        return reply
 
     def _try_local_commands(self, msg: str) -> Optional[str]:
         lower = msg.lower().strip()
@@ -105,6 +131,9 @@ class AIAgent:
                 "- اكتشف مصادر: https://example.com : إيجاد خلاصات RSS لموقع\n"
                 "- تواصل : إعدادات قنوات التواصل | فعّل تواصل | عطّل تواصل\n"
                 "- روابط ID: https://linkedin.com/... , https://x.com/... : ربط حسابات جهة\n"
+                "- ذاكرة : إحصاءات الذاكرة | ابحث في الذاكرة: ... | تذكر: حقيقة [عن: الجهة]\n"
+                "- أرشف الذاكرة : تدريج وأرشفة وتلخيص | جديد: سؤال : تجاوز الإجابات المحفوظة\n"
+                "- نسخة احتياطية : الآن | النسخ : القائمة | جدول النسخ daily 3 : التكرار (off|hourly|every6h|daily|weekly)\n"
                 "- اختبار / smoke : اختبار دخان بدون توكنات Claude"
             )
 
@@ -141,6 +170,10 @@ class AIAgent:
         soc = self._handle_social(msg, lower)
         if soc is not None:
             return soc
+
+        mem = self._handle_memory(msg, lower)
+        if mem is not None:
+            return mem
 
         if lower in ("قائمة", "list", "المراقبة"):
             try:
@@ -308,6 +341,46 @@ class AIAgent:
         if m:
             links = [x.strip() for x in re.split(r"[,،\s]+", m.group(2)) if x.strip()]
             return json.dumps(self.odoo.set_social_links(int(m.group(1)), links), ensure_ascii=False, indent=2)
+        return None
+
+    def _handle_memory(self, msg: str, lower: str) -> Optional[str]:
+        if lower in ("ذاكرة", "الذاكرة", "memory"):
+            st = self.memory.stats()
+            emb = st["embeddings"]
+            return (
+                f"الذاكرة: {st['total']} عنصر — حسب النوع {st['by_kind']} — حسب الطبقة {st['by_tier']}\n"
+                f"روابط مُشاهدة (منع التكرار): {st['seen_links']} | جهات: {st['entities']} | إجابات أُعيد استخدامها: {st['qa_cache_hits']}\n"
+                f"بحث دلالي: {'مفعّل (' + emb['model'].split('/')[-1] + ')' if emb['loaded'] else 'FTS فقط' + (' — ' + str(emb['error']) if emb['error'] else '')}\n"
+                f"حجم القاعدة: {st['db_bytes'] // 1024} KB | إعدادات: qa_cache={st['settings']['qa_cache']} threshold={st['settings']['qa_threshold']} hot={st['settings']['hot_days']}d archive={st['settings']['archive_days']}d"
+            )
+        m = re.match(r"(?:ابحث\s+في\s+الذاكرة|ذاكرة|memory)\s*[:：]\s*(.+)", msg, re.I | re.S)
+        if m:
+            hits = self.memory.search(m.group(1).strip(), k=10)
+            if not hits:
+                return "لا توجد نتائج في الذاكرة."
+            return "نتائج الذاكرة:\n" + "\n".join(
+                f"#{h['id']} ({h['kind']}, {h['tier']}, {(h.get('event_at') or '')[:10]}{', ' + h['entity'] if h['entity'] else ''}) {h['text'][:160]}" + (f" [{h['url']}]" if h.get('url') else "")
+                for h in hits)
+        m = re.match(r"تذك[رّ]+\s*[:：]\s*(.+?)(?:\s+عن\s*[:：]\s*(.+))?$", msg, re.I | re.S)
+        if m:
+            mid = self.memory.remember_fact(m.group(1).strip(), entity=(m.group(2) or "").strip())
+            return f"حُفظت الحقيقة في الذاكرة (#{mid})."
+        if lower in ("أرشف الذاكرة", "ارشف الذاكرة", "consolidate", "أرشفة"):
+            return "تمت الأرشفة: " + json.dumps(self.memory.consolidate(claude=self.claude), ensure_ascii=False)
+        if lower in ("نسخة احتياطية", "نسخ احتياطي", "backup", "backup now"):
+            r = backup_mod.create_backup()
+            return ("✅ " if r.get("ok") else "⚠️ ") + json.dumps({k: r.get(k) for k in ("file", "bytes", "encrypted", "drive", "warning")}, ensure_ascii=False, default=str)
+        if lower in ("النسخ", "النسخ الاحتياطية", "backups"):
+            loc = backup_mod.list_local()
+            lines = [f"- {b['name']} ({b['bytes'] // 1024} KB{'، مشفّرة' if b['encrypted'] else ''})" for b in loc[:10]]
+            return "النسخ المحلية:\n" + ("\n".join(lines) if lines else "لا توجد") + f"\nالجدول: {backup_mod.public_settings()['frequency']} — التالية: {backup_mod.next_due() or '—'}"
+        m = re.match(r"جدول\s+النسخ\s+(\w+)(?:\s+(\d+))?(?:\s+(\w+))?", msg, re.I)
+        if m:
+            try:
+                st = backup_mod.set_settings(frequency=m.group(1).lower(), hour=int(m.group(2)) if m.group(2) else None, day=(m.group(3) or "").lower() or None)
+                return f"جدول النسخ: {st['frequency']} الساعة {st['hour']}:00" + (f" يوم {st['day']}" if st['frequency'] == 'weekly' else "") + f" — التالية: {st['next_due'] or '—'}"
+            except ValueError as e:
+                return str(e)
         return None
 
     def _read_schedule(self) -> Dict[str, str]:

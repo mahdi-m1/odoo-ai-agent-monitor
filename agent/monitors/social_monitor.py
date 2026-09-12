@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 import httpx
 
 from agent import agent_settings
+from agent.memory import get_memory
 from agent.tools.odoo_tools import OdooTools
 from agent.tools.search_tools import SearchTools
 
@@ -81,9 +82,14 @@ class SocialMonitor:
         if not self.active:
             return {"active": False, "hits": 0, "logged": 0, "note": "معطّل — فعّل قنوات التواصل من صفحة «المصادر والقنوات»"}
         hits = self.run(limit_entities=limit_entities)
+        memory = get_memory()
         logged = 0
         for h in hits[:50]:
             if not h.get("excerpt"):
+                continue
+            # same page content → same memory (hash de-dup); log to Odoo only when the content changed
+            if memory.remember_event(f"تواصل/{h['platform']}", h.get("partner_name", ""), h["link"][:100], h["excerpt"][:300],
+                                     url=f"{h['link']}#{hash(h['excerpt'][:1500])}", source=h["platform"], importance=0.4) is None:
                 continue
             try:
                 self.odoo.log_event(h["partner_id"], f"[تواصل/{h['platform']}] {h['link'][:100]}", h["excerpt"][:400], as_activity=False)

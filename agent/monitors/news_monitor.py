@@ -6,6 +6,7 @@ import logging
 from typing import Any, Dict, List
 
 from agent.tools.odoo_tools import OdooTools
+from agent.memory import get_memory
 from agent.sources import SourceStore
 from agent.tools.search_tools import SearchTools, entity_query
 
@@ -40,8 +41,10 @@ class NewsMonitor:
 
     def run_and_log(self, limit_entities: int = 30) -> Dict[str, Any]:
         hits = self.run(limit_entities=limit_entities)
+        memory = get_memory()
+        new_hits = [h for h in hits if not memory.seen(h.get("link", ""))]
         logged = 0
-        for h in hits[:50]:
+        for h in new_hits[:50]:
             pid = h.get("partner_id")
             if not pid:
                 continue
@@ -56,4 +59,7 @@ class NewsMonitor:
                 logged += 1
             except Exception as e:
                 logger.warning("Failed to log event for partner %s: %s", pid, e)
-        return {"hits": len(hits), "logged": logged, "channels_used": len(self.sources.enabled_feeds()) + len(self.sources.enabled_search()), "sample": hits[:5]}
+            memory.remember_event("خبر", h.get("partner_name", ""), h.get("title", ""), h.get("summary", ""), url=h.get("link", ""),
+                                  source=h.get("feed_name", ""), meta={"partner_id": pid, "published": h.get("published", "")})
+        return {"hits": len(hits), "new": len(new_hits), "already_known": len(hits) - len(new_hits), "logged": logged,
+                "channels_used": len(self.sources.enabled_feeds()) + len(self.sources.enabled_search()), "sample": new_hits[:5]}

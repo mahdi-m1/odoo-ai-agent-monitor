@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from agent.memory import get_memory
 from agent.sources import SourceStore
 from agent.tools.odoo_tools import OdooTools
 from agent.tools.search_tools import SearchTools
@@ -67,10 +68,16 @@ class LegislationMonitor:
         findings = self.scan_sources()
         matched = self.match_entities(findings, [p.get("name") or "" for p in partners])
         by_name = {p.get("name"): p.get("id") for p in partners}
+        memory = get_memory()
         logged = 0
         for m in matched[:50]:
             pid = by_name.get(m.get("matched_entity"))
             if not pid:
+                continue
+            # one legislation match per source+entity+day is enough
+            key = f"{m.get('url')}#{m.get('matched_entity')}#{m.get('fetched_at', '')[:10]}"
+            if memory.remember_event("تشريع", m.get("matched_entity", ""), f"{m.get('source', '')} — {m.get('region', '')}",
+                                     (m.get("excerpt") or "")[:300], url=key, source=m.get("source", ""), importance=0.7) is None:
                 continue
             try:
                 self.odoo.log_event(

@@ -86,24 +86,25 @@ class ClaudeCLI:
         }
 
     # ---- calls ----
-    def _base_cmd(self, prompt: str, system: Optional[str], json_out: bool) -> List[str]:
+    def _base_cmd(self, prompt: str, system: Optional[str], json_out: bool, model: Optional[str] = None) -> List[str]:
         cmd: List[str] = [self._resolved, "-p", prompt, "--disallowedTools", DENIED_TOOLS]
         if json_out:
             cmd += ["--output-format", "json"]
         if system:
             cmd += ["--append-system-prompt", system.strip()]
-        if self.model:
-            cmd += ["--model", self.model]
+        if model or self.model:
+            cmd += ["--model", model or self.model]
         effort = agent_settings.get_effort()
         if effort:
             cmd += ["--effort", effort]
         return cmd
 
-    def complete(self, prompt: str, system: Optional[str] = None, keep_session: bool = False) -> str:
-        """Single-shot completion. With keep_session=True the conversation continues across calls."""
+    def complete(self, prompt: str, system: Optional[str] = None, keep_session: bool = False, model: Optional[str] = None) -> str:
+        """Single-shot completion. With keep_session=True the conversation continues across calls.
+        `model` overrides the configured model for this call only (e.g. a cheap model for summaries)."""
         if not self.available():
             raise RuntimeError(f"Claude CLI غير موجود في '{self.cli_path}'. ثبّت Claude Code وسجّل الدخول بـ `claude`.")
-        cmd = self._base_cmd(prompt, system, json_out=True)
+        cmd = self._base_cmd(prompt, system, json_out=True, model=model)
         if keep_session and self.session_id:
             cmd += ["--resume", self.session_id]
         started = datetime.now()
@@ -127,7 +128,7 @@ class ClaudeCLI:
             # A stale session id is the usual cause — retry once without it.
             if keep_session and self.session_id and "session" in err.lower():
                 self.session_id = None
-                return self.complete(prompt, system, keep_session=False)
+                return self.complete(prompt, system, keep_session=False, model=model)
             self._record(started, ok=False, error=err, data=data)
             raise RuntimeError(err or f"Claude CLI failed (code={result.returncode})")
 

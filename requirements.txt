@@ -2,6 +2,7 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 python-dotenv>=1.0.1
+python-multipart>=0.0.9
 pyyaml>=6.0.2
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
@@ -23,3 +24,11 @@ rich>=13.9.0
 
 # MCP — tools for AI agents (Claude Desktop / Claude Code / etc.)
 mcp>=1.0.0
+
+# ===== Memory & Backup =====
+# Memory: local multilingual embeddings (optional, MEMORY_EMBEDDINGS=auto)
+fastembed>=0.4.0
+numpy>=1.26.0
+# Backup: Google Drive auth
+PyJWT>=2.9.0
+cryptography>=43.0.0

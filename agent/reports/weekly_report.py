@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from agent.claude_cli import ClaudeCLI
+from agent.memory import get_memory
 from agent.tools.odoo_tools import OdooTools
 from agent.monitors.full_cycle import run_full_monitoring
 
@@ -23,10 +24,14 @@ class WeeklyReportGenerator:
     def collect(self) -> Dict[str, Any]:
         tree = self.odoo.list_monitoring_tree()
         scan = run_full_monitoring(self.odoo)
+        # Everything learned this week (monitors de-duplicate, so the scan alone would under-report)
+        week = [{"when": e.get("event_at", "")[:10], "entity": e.get("entity"), "text": e.get("text", "")[:240], "url": e.get("url", "")}
+                for e in get_memory().recent_events(days=7, limit=80)]
         return {
             "generated_at": datetime.now().isoformat(),
             "entities": tree,
             "monitoring": scan,
+            "memory_last_7_days": week,
         }
 
     def render_with_claude(self, data: Dict[str, Any], custom_focus: str = "") -> str:
@@ -78,4 +83,8 @@ class WeeklyReportGenerator:
             note_id = self.odoo.client.create_note(text[:5000])
         except Exception as e:
             logger.warning("note: %s", e)
+        try:  # the report itself becomes long-term memory (searchable later, summarised on archive)
+            get_memory().add("report", f"تقرير {path.name}: {text[:1500]}", source=str(path.name), importance=0.7, meta={"path": str(path), "focus": custom_focus})
+        except Exception as e:
+            logger.warning("memory: %s", e)
         return {"path": str(path), "note_id": note_id, "chars": len(text), "entities": data.get("entities")}

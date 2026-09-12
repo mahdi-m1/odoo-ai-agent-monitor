@@ -27,3 +27,12 @@ Thumbs.db
 .claude/
 *.pem
 credentials.json
+
+# Agent runtime state & secrets (never commit)
+data/
+data/models/
+data/memory.db*
+data/*.json
+data/backups/
+data/gdrive_credentials.json
+data/gdrive_token.json

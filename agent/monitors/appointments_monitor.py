@@ -6,6 +6,7 @@ import logging
 from typing import Any, Dict, List
 
 from agent.tools.odoo_tools import OdooTools
+from agent.memory import get_memory
 from agent.sources import SourceStore
 from agent.tools.search_tools import SearchTools, entity_query
 
@@ -54,8 +55,10 @@ class AppointmentsMonitor:
 
     def run_and_log(self) -> Dict[str, Any]:
         events = self.run()
+        memory = get_memory()
+        new_events = [e for e in events if not memory.seen(e.get("link", ""))]
         logged = 0
-        for e in events[:40]:
+        for e in new_events[:40]:
             pid = e.get("partner_id")
             if not pid:
                 continue
@@ -66,4 +69,6 @@ class AppointmentsMonitor:
                 logged += 1
             except Exception as ex:
                 logger.warning("log failed: %s", ex)
-        return {"events": len(events), "logged": logged, "sample": events[:5]}
+            memory.remember_event("تعيين/ترقية/استقالة", e.get("partner_name", ""), e.get("title", ""), e.get("summary", ""), url=e.get("link", ""),
+                                  source=e.get("feed_name", ""), importance=0.8, meta={"partner_id": pid, "published": e.get("published", "")})
+        return {"events": len(events), "new": len(new_events), "already_known": len(events) - len(new_events), "logged": logged, "sample": new_events[:5]}

@@ -15,6 +15,9 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
+from agent import backup as backup_mod
+from agent.claude_cli import ClaudeCLI
+from agent.memory import get_memory
 from agent.reports.weekly_report import WeeklyReportGenerator
 from agent.monitors.full_cycle import run_full_monitoring
 from agent.tools.odoo_tools import OdooTools
@@ -43,6 +46,25 @@ def job_daily_scan():
         logger.exception("Daily scan failed: %s", e)
 
 
+def job_backup_tick():
+    """Every few minutes: run a backup if the user's schedule says one is due (settings can change without restart)."""
+    try:
+        if backup_mod.is_due():
+            logger.info("Scheduled backup due...")
+            result = backup_mod.create_backup()
+            logger.info("Backup: %s", {k: result.get(k) for k in ("file", "bytes", "drive", "warning")})
+    except Exception as e:
+        logger.exception("Backup tick failed: %s", e)
+
+
+def job_memory_consolidate():
+    logger.info("Memory consolidation...")
+    try:
+        logger.info("Consolidation: %s", get_memory().consolidate(claude=ClaudeCLI()))
+    except Exception as e:
+        logger.exception("Consolidation failed: %s", e)
+
+
 def main():
     day = os.getenv("WEEKLY_REPORT_DAY", "sunday").lower()
     hour = int(os.getenv("WEEKLY_REPORT_HOUR", "8"))
@@ -66,6 +88,8 @@ def main():
         id="daily_scan",
         replace_existing=True,
     )
+    scheduler.add_job(job_backup_tick, "interval", minutes=5, id="backup_tick", replace_existing=True)
+    scheduler.add_job(job_memory_consolidate, CronTrigger(hour=3, minute=30), id="memory_consolidate", replace_existing=True)
     logger.info(
         "Scheduler up. Weekly=%s %02d:00 daily_scan=%02d:00 tz=%s now=%s",
         cron_day, hour, daily_hour, tz, datetime.now().isoformat(),

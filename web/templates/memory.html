@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ذاكرة الوكيل</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="top">
+    <h1>ذاكرة الوكيل</h1>
+    <p class="sub">ذاكرة دائمة مؤرشفة: حقائق · أحداث · محادثات · ملخصات · تقارير — بحث لفظي + دلالي، ولا شيء يُحذف</p>
+    <nav>
+      <a href="/">الرئيسية</a>
+      <a href="/chat">الدردشة</a>
+      <a href="/sources">المصادر والقنوات</a>
+      <a href="/memory">الذاكرة</a>
+      <a href="/backup">النسخ الاحتياطي</a>
+      <a href="/dashboard">لوحة التحكم</a>
+    </nav>
+  </header>
+  <main class="grid">
+    <section class="card">
+      <h2>الإحصاءات</h2>
+      <ul class="status" id="mem-stats">
+        <li>الإجمالي: <b>{{ stats.total }}</b> — حسب النوع: {% for k, v in stats.by_kind.items() %}{{ k }}={{ v }} {% endfor %}</li>
+        <li>الطبقات: {% for k, v in stats.by_tier.items() %}{{ k }}={{ v }} {% endfor %}</li>
+        <li>روابط مُشاهدة (منع التكرار): {{ stats.seen_links }} · جهات: {{ stats.entities }}</li>
+        <li>إجابات أُعيد استخدامها بدون توكن: <b>{{ stats.qa_cache_hits }}</b></li>
+        <li>بحث دلالي: {% if stats.embeddings.loaded %}<span class="ok">مفعّل</span> ({{ stats.embeddings.model.split('/')[-1] }}){% else %}<span class="bad">FTS فقط</span> {{ stats.embeddings.error or '(يُحمَّل…)' }}{% endif %} · مضمّن: {{ stats.with_embedding }}/{{ stats.total }}</li>
+        <li>الحجم: {{ (stats.db_bytes / 1024) | round(0) | int }} KB</li>
+      </ul>
+      <div class="row">
+        <button type="button" class="ghost" id="btn-consolidate">أرشفة وتلخيص الآن</button>
+        <button type="button" class="ghost" id="btn-refresh">تحديث</button>
+      </div>
+      <pre id="mem-result" class="result" style="display:none"></pre>
+    </section>
+
+    <section class="card">
+      <h2>إضافة حقيقة للذاكرة</h2>
+      <form id="fact-form" class="form">
+        <input name="text" placeholder="مثال: الرئيس التنفيذي لبنك البحرين الوطني هو … *" required />
+        <input name="entity" placeholder="الجهة (اختياري)" />
+        <button type="submit">حفظ</button>
+      </form>
+      <pre id="fact-result" class="result"></pre>
+    </section>
+
+    <section class="card full">
+      <h2>بحث في الذاكرة</h2>
+      <form id="search-form" class="row">
+        <input name="q" placeholder="سؤال أو كلمات (عربي/إنجليزي)…" required />
+        <select name="kind"><option value="">كل الأنواع</option>{% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}</select>
+        <button type="submit">بحث</button>
+      </form>
+      <table id="search-table" style="margin-top:.6rem">
+        <thead><tr><th>الدرجة</th><th>النوع</th><th>الطبقة</th><th>التاريخ</th><th>الجهة</th><th>النص</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="card full">
+      <h2>الإعدادات</h2>
+      <div class="checks" id="mem-settings">
+        <label><input type="checkbox" id="s-qa" {% if stats.settings.qa_cache %}checked{% endif %} /> إعادة استخدام الإجابات (QA cache)</label>
+        <label>عتبة التشابه <input id="s-th" type="number" step="0.01" min="0.5" max="1" value="{{ stats.settings.qa_threshold }}" style="width:5rem" /></label>
+        <label>صلاحية الإجابة (ساعات) <input id="s-ttl" type="number" min="1" value="{{ stats.settings.qa_ttl_hours }}" style="width:5rem" /></label>
+        <label>عدد الذكريات في السياق <input id="s-k" type="number" min="1" max="30" value="{{ stats.settings.recall_k }}" style="width:4rem" /></label>
+        <label>حد الأحرف <input id="s-chars" type="number" min="300" value="{{ stats.settings.recall_max_chars }}" style="width:5rem" /></label>
+        <label>أيام hot <input id="s-hot" type="number" min="1" value="{{ stats.settings.hot_days }}" style="width:4rem" /></label>
+        <label>أيام حتى الأرشفة <input id="s-arch" type="number" min="1" value="{{ stats.settings.archive_days }}" style="width:4rem" /></label>
+        <label><input type="checkbox" id="s-cc" {% if stats.settings.consolidate_with_claude %}checked{% endif %} /> تلخيص عبر Claude (نموذج <input id="s-cm" value="{{ stats.settings.consolidate_model }}" style="width:5rem" />)</label>
+        <button type="button" id="btn-save-settings">حفظ الإعدادات</button>
+      </div>
+      <pre id="settings-result" class="result" style="display:none"></pre>
+    </section>
+
+    <section class="card full">
+      <h2>آخر الذكريات</h2>
+      <table>
+        <thead><tr><th>#</th><th>النوع</th><th>الطبقة</th><th>التاريخ</th><th>الجهة</th><th>النص</th><th>الاستخدام</th></tr></thead>
+        <tbody>
+          {% for m in recent %}
+          <tr><td>{{ m.id }}</td><td>{{ m.kind }}</td><td>{{ m.tier }}</td><td>{{ (m.event_at or m.created_at or '')[:16] }}</td><td>{{ m.entity or '—' }}</td><td>{{ m.text[:140] }}</td><td>{{ m.access_count }}</td></tr>
+          {% else %}
+          <tr><td colspan="7">الذاكرة فارغة بعد — ستمتلئ من الدردشة والمسح.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+  <script src="/static/js/memory.js"></script>
+</body>
+</html>
