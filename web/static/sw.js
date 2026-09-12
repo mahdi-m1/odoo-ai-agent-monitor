@@ -1,5 +1,5 @@
 /* Service Worker — وكيل Odoo. تخزين هيكل التطبيق + عمل دون إنترنت. */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'odoo-agent-' + VERSION;
 const SHELL = [
   '/static/css/style.css',
@@ -34,17 +34,25 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(fetch(req).catch(() => caches.match('/offline.html')));
     return;
   }
-  // الأصول الثابتة: الكاش أولاً
+  // لا نُخزّن إلا الردود السليمة same-origin (خلف Cloudflare Access قد يأتي 302→login؛ يجب ألا يُخزَّن)
+  const cacheable = (res) => res && res.ok && res.status === 200 && res.type === 'basic';
+
+  // الأصول الثابتة: قدّم من الكاش فوراً وحدّثه بالخلفية (stale-while-revalidate) → يتحدّث المستخدم تلقائياً
   if (url.pathname.startsWith('/static/') || url.pathname === '/manifest.webmanifest') {
-    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-      const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res;
-    }).catch(() => hit)));
+    e.respondWith(caches.match(req).then((hit) => {
+      const fetching = fetch(req).then((res) => {
+        if (cacheable(res)) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
+        return res;
+      }).catch(() => hit);
+      return hit || fetching;
+    }));
     return;
   }
   // GET /api/*: الشبكة أولاً مع كاش احتياطي (آخر بيانات معروفة دون إنترنت)
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(fetch(req).then((res) => {
-      const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res;
+      if (cacheable(res)) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
+      return res;
     }).catch(() => caches.match(req)));
     return;
   }

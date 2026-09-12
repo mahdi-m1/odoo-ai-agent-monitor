@@ -8,14 +8,25 @@ function mdToHtml(text) {
   t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   t = t.replace(/(^|[^"(])(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
   t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  const lines = t.split('\n'); let html = '', inUl = false;
+  const lines = t.split('\n'); let html = '', inUl = false, i = 0;
   const closeUl = () => { if (inUl) { html += '</ul>'; inUl = false; } };
-  for (let ln of lines) {
-    let m;
+  const cells = (ln) => ln.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  const isRow = (ln) => /^\s*\|.*\|\s*$/.test(ln);
+  const isSep = (ln) => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(ln) && ln.includes('-');
+  while (i < lines.length) {
+    const ln = lines[i]; let m;
+    if (isRow(ln) && i + 1 < lines.length && isSep(lines[i + 1])) {
+      closeUl();
+      const header = cells(ln); i += 2; let rows = '';
+      while (i < lines.length && isRow(lines[i])) { rows += '<tr>' + cells(lines[i]).map(c => '<td>' + c + '</td>').join('') + '</tr>'; i++; }
+      html += '<table><thead><tr>' + header.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table>';
+      continue;
+    }
     if ((m = ln.match(/^(#{1,4})\s+(.*)/))) { closeUl(); const lvl = m[1].length + 1; html += `<h${lvl}>${m[2]}</h${lvl}>`; }
     else if (/^\s*[-•*]\s+/.test(ln)) { if (!inUl) { html += '<ul>'; inUl = true; } html += '<li>' + ln.replace(/^\s*[-•*]\s+/, '') + '</li>'; }
     else if (ln.trim()) { closeUl(); html += '<p>' + ln + '</p>'; }
     else closeUl();
+    i++;
   }
   closeUl();
   return html;
@@ -127,7 +138,9 @@ async function refreshReports() {
       (r.archived ? '<span class="badge badge-arch">مؤرشف</span>' : '') +
       `<span class="report-title">${r.title}</span><span class="muted report-date">${(r.created_at || '').slice(0, 16).replace('T', ' ')}</span></div>` +
       `<div class="report-actions"><button type="button" class="ghost small btn-view">عرض</button>` +
-      `<a class="ghost small" href="/api/reports/${encodeURIComponent(r.name)}/download">تنزيل</a>` +
+      `<a class="ghost small" href="/api/reports/${encodeURIComponent(r.name)}/export?format=pdf">PDF</a>` +
+      `<a class="ghost small" href="/api/reports/${encodeURIComponent(r.name)}/export?format=docx">Word</a>` +
+      `<a class="ghost small" href="/api/reports/${encodeURIComponent(r.name)}/download">MD</a>` +
       `<button type="button" class="ghost small btn-arch">${r.archived ? 'إلغاء الأرشفة' : 'أرشفة'}</button>` +
       `<button type="button" class="ghost small danger btn-del">حذف</button></div>`;
     list.appendChild(div);

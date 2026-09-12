@@ -34,6 +34,7 @@ from agent.sources import SOURCE_TYPES, discover_feeds
 from agent.tools.odoo_tools import OdooTools
 from agent.reports.weekly_report import WeeklyReportGenerator
 from agent.reports import store as report_store
+from agent.reports import export as report_export
 from agent.monitors.full_cycle import run_full_monitoring
 from agent.smoke_test import run_smoke
 
@@ -479,6 +480,26 @@ def api_report_download(name: str):
     if not p:
         return JSONResponse({"error": "غير موجود"}, status_code=404)
     return FileResponse(str(p), filename=p.name, media_type="text/markdown")
+
+
+@app.get("/api/reports/{name}/export")
+def api_report_export(name: str, format: str = "pdf"):
+    meta = report_store.get(name)
+    if not meta:
+        return JSONResponse({"error": "تقرير غير موجود"}, status_code=404)
+    fmt = "docx" if format.lower() in ("docx", "word", "doc") else "pdf"
+    out = report_store.OUT_DIR / "exports"
+    out.mkdir(parents=True, exist_ok=True)
+    stem = Path(name).stem
+    try:
+        if fmt == "pdf":
+            path = report_export.to_pdf(meta["content"], out / f"{stem}.pdf", title=meta.get("title", "تقرير"))
+            return FileResponse(str(path), filename=f"{stem}.pdf", media_type="application/pdf")
+        path = report_export.to_docx(meta["content"], out / f"{stem}.docx", title=meta.get("title", "تقرير"))
+        return FileResponse(str(path), filename=f"{stem}.docx",
+                            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    except Exception as e:
+        return JSONResponse({"error": f"تعذّر التصدير: {e}"}, status_code=500)
 
 
 @app.post("/api/reports/{name}/archive")

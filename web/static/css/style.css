@@ -394,3 +394,6 @@ textarea.links { width: 100%; background: var(--card-2); color: var(--ink); bord
 .report-viewer strong { font-weight: 800; }
 .report-viewer pre { background: var(--paper); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem; overflow-x: auto; font-size: 0.82rem; }
 @media (max-width: 640px) { .report-actions { width: 100%; } .report-main { min-width: 100%; } }
+.report-viewer table { width: 100%; border-collapse: collapse; margin: 0.6rem 0; font-size: 0.85rem; }
+.report-viewer th, .report-viewer td { border: 1px solid var(--border); padding: 0.4rem 0.55rem; text-align: right; }
+.report-viewer th { background: var(--card-2); color: var(--accent-2); font-weight: 800; }
