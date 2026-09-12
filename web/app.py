@@ -25,6 +25,7 @@ if sf.exists():
 from agent import agent_settings
 from agent import backup as backup_mod
 from agent import memory as memory_mod
+from agent import push as push_mod
 from agent.gdrive import GDrive, GDriveError, save_credentials, unlink_drive
 from agent.tools.browser import get_renderer
 from agent.main import AIAgent
@@ -242,6 +243,23 @@ def dashboard(request: Request):
         "dashboard.html",
         {"request": request, "tree": tree, "reports": [r.name for r in reports], "schedule": agent._read_schedule()},
     )
+
+
+@app.get("/sw.js")
+def service_worker():
+    # Served from root so the SW scope is the whole site (not /static/).
+    return FileResponse(str(static_dir / "sw.js"), media_type="application/javascript",
+                        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
+
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    return FileResponse(str(static_dir / "manifest.webmanifest"), media_type="application/manifest+json")
+
+
+@app.get("/offline.html", response_class=HTMLResponse)
+def offline_page(request: Request):
+    return templates.TemplateResponse(request, "offline.html", {"request": request})
 
 
 @app.post("/api/chat")
@@ -662,6 +680,40 @@ def api_drive_test():
         return {"ok": True, "folder_id": gd.ensure_folder(), "backups": len(gd.list_backups()), "account": gd.status().get("account")}
     except GDriveError as e:
         return {"ok": False, "error": str(e)}
+
+
+# ---- Web Push notifications ----
+@app.get("/api/push/vapid")
+def api_push_vapid():
+    return {"publicKey": push_mod.public_key(), "state": push_mod.get_state()}
+
+
+@app.post("/api/push/subscribe")
+def api_push_subscribe(sub: dict):
+    try:
+        return push_mod.subscribe(sub)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/push/unsubscribe")
+def api_push_unsubscribe(body: dict):
+    return push_mod.unsubscribe(body.get("endpoint", ""))
+
+
+@app.post("/api/push/test")
+def api_push_test():
+    return push_mod.send_push("وكيل Odoo — اختبار", "الإشعارات تعمل بنجاح ✅", url="/dashboard", respect_enabled=False)
+
+
+@app.get("/api/push/state")
+def api_push_state():
+    return push_mod.get_state()
+
+
+@app.post("/api/push/state")
+def api_push_state_set(body: dict):
+    return push_mod.set_enabled(bool(body.get("enabled", True)))
 
 
 if __name__ == "__main__":

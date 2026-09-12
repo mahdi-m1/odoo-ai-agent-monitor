@@ -1,27 +1,9 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ذاكرة الوكيل</title>
-  <meta name="theme-color" content="#efe4cc" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#241d17" media="(prefers-color-scheme: dark)" />
-  <meta name="color-scheme" content="light dark" />
-  <link rel="stylesheet" href="/static/css/style.css" />
-</head>
-<body>
-  <header class="top">
-    <h1>ذاكرة الوكيل</h1>
-    <p class="sub">ذاكرة دائمة مؤرشفة: حقائق · أحداث · محادثات · ملخصات · تقارير — بحث لفظي + دلالي، ولا شيء يُحذف</p>
-    <nav>
-      <a href="/">الرئيسية</a>
-      <a href="/chat">الدردشة</a>
-      <a href="/sources">المصادر والقنوات</a>
-      <a href="/memory">الذاكرة</a>
-      <a href="/backup">النسخ الاحتياطي</a>
-      <a href="/dashboard">لوحة التحكم</a>
-    </nav>
-  </header>
+{% extends "base.html" %}
+{% block title %}ذاكرة الوكيل{% endblock %}
+{% block h1 %}ذاكرة الوكيل{% endblock %}
+{% block sub %}<p class="sub">ذاكرة دائمة مؤرشفة: حقائق · أحداث · محادثات · ملخصات · تقارير — بحث لفظي + دلالي، ولا شيء يُحذف</p>{% endblock %}
+
+{% block content %}
   <main class="grid">
     <section class="card">
       <h2>الإحصاءات</h2>
@@ -93,6 +75,6 @@
       </table>
     </section>
   </main>
-  <script src="/static/js/memory.js"></script>
-</body>
-</html>
+{% endblock %}
+
+{% block scripts %}<script src="/static/js/memory.js"></script>{% endblock %}

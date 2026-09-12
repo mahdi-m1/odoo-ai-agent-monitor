@@ -16,6 +16,7 @@ from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
 from agent import backup as backup_mod
+from agent import push as push_mod
 from agent.claude_cli import ClaudeCLI
 from agent.memory import get_memory
 from agent.reports.weekly_report import WeeklyReportGenerator
@@ -42,8 +43,28 @@ def job_daily_scan():
     try:
         result = run_full_monitoring(OdooTools())
         logger.info("Daily full scan: %s", result)
+        _notify_new_events(result)
     except Exception as e:
         logger.exception("Daily scan failed: %s", e)
+
+
+def _notify_new_events(result: dict) -> None:
+    """Push a notification summarizing genuinely-new monitoring hits (deduped by the monitors)."""
+    try:
+        steps = (result or {}).get("steps", {})
+        news = steps.get("news_deals_finance", {}).get("new", 0) or 0
+        appts = steps.get("appointments_promotions", {}).get("new", 0) or 0
+        legis = steps.get("legislation", {}).get("documents_new", 0) or 0
+        total = news + appts + legis
+        if total <= 0:
+            return
+        parts = []
+        if appts: parts.append(f"{appts} تعيين/ترقية")
+        if news: parts.append(f"{news} خبر")
+        if legis: parts.append(f"{legis} وثيقة تشريعية")
+        push_mod.send_push("رصد جديد من الوكيل", "، ".join(parts), url="/dashboard", tag="scan", throttle_s=300)
+    except Exception as e:
+        logger.warning("push notify failed: %s", e)
 
 
 def job_backup_tick():

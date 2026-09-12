@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}دون اتصال{% endblock %}
+{% block h1 %}دون اتصال بالإنترنت{% endblock %}
+{% block bottom_nav %}{% endblock %}
+{% block content %}
+  <main class="grid">
+    <section class="card full" style="text-align:center">
+      <div style="font-size:3rem">📡</div>
+      <h2 style="border:0">لا يوجد اتصال حالياً</h2>
+      <p class="muted">أنت غير متصل بالإنترنت. تُعرض الصفحات المخزَّنة فقط. سيعود كل شيء عند عودة الاتصال.</p>
+      <button type="button" onclick="location.reload()">إعادة المحاولة</button>
+    </section>
+  </main>
+{% endblock %}

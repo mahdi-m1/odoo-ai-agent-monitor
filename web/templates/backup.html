@@ -1,27 +1,9 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>النسخ الاحتياطي والاسترجاع</title>
-  <meta name="theme-color" content="#efe4cc" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#241d17" media="(prefers-color-scheme: dark)" />
-  <meta name="color-scheme" content="light dark" />
-  <link rel="stylesheet" href="/static/css/style.css" />
-</head>
-<body>
-  <header class="top">
-    <h1>النسخ الاحتياطي والاسترجاع</h1>
-    <p class="sub">الذاكرة · الإعدادات · المصادر · التقارير — نسخة محلية دائماً، وGoogle Drive الشخصي كوجهة أساسية</p>
-    <nav>
-      <a href="/">الرئيسية</a>
-      <a href="/chat">الدردشة</a>
-      <a href="/sources">المصادر والقنوات</a>
-      <a href="/memory">الذاكرة</a>
-      <a href="/backup">النسخ الاحتياطي</a>
-      <a href="/dashboard">لوحة التحكم</a>
-    </nav>
-  </header>
+{% extends "base.html" %}
+{% block title %}النسخ الاحتياطي والاسترجاع{% endblock %}
+{% block h1 %}النسخ الاحتياطي والاسترجاع{% endblock %}
+{% block sub %}<p class="sub">الذاكرة · الإعدادات · المصادر · التقارير — نسخة محلية دائماً، وGoogle Drive الشخصي كوجهة أساسية</p>{% endblock %}
+
+{% block content %}
   <main class="grid">
 
     <section class="card">
@@ -66,6 +48,17 @@
     </section>
 
     <section class="card full">
+      <h2>التنبيهات الفورية (Push)</h2>
+      <p class="muted">إشعارات تصل جهازك عند رصد أحداث جديدة (تعيينات/أخبار/تشريعات) — حتى والموقع مغلق.</p>
+      <div class="row">
+        <button type="button" class="ghost" id="btn-push-enable">تفعيل الإشعارات على هذا الجهاز</button>
+        <button type="button" class="ghost" id="btn-push-test">إرسال إشعار تجريبي</button>
+        <button type="button" class="ghost danger" id="btn-push-disable">إيقاف</button>
+        <span class="muted" id="push-status">—</span>
+      </div>
+    </section>
+
+    <section class="card full">
       <h2>النسخ</h2>
       <div class="row" style="margin-bottom:.6rem">
         <button type="button" id="btn-backup-now">نسخة احتياطية الآن</button>
@@ -91,7 +84,9 @@
       <pre id="backup-result" class="result" style="display:none"></pre>
     </section>
   </main>
+{% endblock %}
+
+{% block scripts %}
   <script>window.DRIVE_PENDING = {{ "true" if drive.pending_device else "false" }};</script>
   <script src="/static/js/backup.js"></script>
-</body>
-</html>
+{% endblock %}

@@ -315,3 +315,60 @@ td .url, .url { font-family: monospace; font-size: 0.78rem; word-break: break-al
   .msg { max-width: 94%; }
   .settings-inner select { max-width: 55%; }
 }
+
+/* ===== PWA / App shell إضافات ===== */
+:root { --bottomnav-h: 58px; }
+
+/* حالة الرابط النشط في التنقّل العلوي */
+nav a.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.nav-install { flex: 0 0 auto; padding: 0.35rem 0.75rem; border-radius: 999px; background: var(--accent-2); color: #fff; border: none; font-weight: 700; font-size: 0.85rem; min-height: 0; box-shadow: none; }
+
+/* حقول روابط التواصل (كانت inline) */
+textarea.links { width: 100%; background: var(--card-2); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem; font-family: monospace; font-size: 0.82rem; }
+
+/* شريط تنقّل سفلي (جوال فقط) */
+.bottom-nav { display: none; }
+@media (max-width: 640px) {
+  .bottom-nav {
+    display: flex; position: fixed; inset-inline: 0; bottom: 0; z-index: 60;
+    background: linear-gradient(0deg, var(--card), var(--paper));
+    border-top: 1.5px solid var(--border-2);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -2px 10px rgba(90,66,40,.14);
+  }
+  .bottom-nav a {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 0.4rem 0.2rem; text-decoration: none; color: var(--muted);
+    font-size: 0.68rem; font-weight: 700; min-height: var(--bottomnav-h);
+  }
+  .bottom-nav a .bn-ico { font-size: 1.25rem; line-height: 1; }
+  .bottom-nav a.active { color: var(--accent); }
+  /* إفساح مكان للشريط السفلي في الصفحات الشبكية */
+  .grid { padding-bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom) + 0.8rem); }
+}
+
+/* Toasts */
+#toast-host { position: fixed; inset-inline: 0; bottom: calc(var(--bottomnav-h) + 12px); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; z-index: 200; pointer-events: none; padding: 0 1rem; }
+@media (min-width: 641px) { #toast-host { bottom: 18px; } }
+.toast {
+  pointer-events: auto; max-width: 92%;
+  background: var(--ink); color: var(--paper);
+  padding: 0.7rem 1.1rem; border-radius: 12px; font-weight: 700; font-size: 0.9rem;
+  box-shadow: var(--shadow-lg); opacity: 0; transform: translateY(12px);
+  transition: opacity .25s ease, transform .25s ease;
+}
+.toast.show { opacity: 1; transform: none; }
+.toast.error { background: var(--bad); color: #fff; }
+.toast.update { background: var(--accent-2); color: #fff; }
+.link-btn { background: none; border: none; color: #fff; text-decoration: underline; font-weight: 800; cursor: pointer; padding: 0; min-height: 0; box-shadow: none; }
+
+/* Skeleton screens */
+.skeleton { position: relative; overflow: hidden; background: var(--card-2); border-radius: 8px; }
+.skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent); animation: shimmer 1.3s infinite; }
+.skeleton-row { height: 1.1rem; margin: 0.4rem 0; }
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
+
+/* انتقالات ناعمة بين الصفحات (MPA View Transitions — تحسين تدريجي) */
+@view-transition { navigation: auto; }

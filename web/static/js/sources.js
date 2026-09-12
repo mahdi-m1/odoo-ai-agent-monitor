@@ -14,10 +14,10 @@ table?.addEventListener('change', async (e) => {
   const tr = e.target.closest('tr'); if (!tr) return;
   if (e.target.classList.contains('toggle')) {
     const d = await api('/api/sources/' + tr.dataset.id, 'PATCH', { enabled: e.target.checked });
-    if (d.error) { alert(d.error); e.target.checked = !e.target.checked; }
+    if (d.error) { toast(d.error, "error"); e.target.checked = !e.target.checked; }
   } else if (e.target.classList.contains('toggle-js')) {
     const d = await api('/api/sources/' + tr.dataset.id, 'PATCH', { render_js: e.target.checked });
-    if (d.error) { alert(d.error); e.target.checked = !e.target.checked; }
+    if (d.error) { toast(d.error, "error"); e.target.checked = !e.target.checked; }
   }
 });
 table?.addEventListener('click', async (e) => {
@@ -69,7 +69,7 @@ document.getElementById('discover-form')?.addEventListener('submit', async (e) =
     box.innerHTML = '<p class="muted">لم أجد خلاصات RSS. ' + (d.page_ok ? 'يمكن إضافة الموقع كنوع <b>page</b>.' : 'الموقع لم يستجب.') + '</p>';
     if (d.page_ok) {
       const b = document.createElement('button'); b.className = 'ghost'; b.textContent = 'أضف كصفحة';
-      b.onclick = async () => { const r = await api('/api/sources', 'POST', { name: d.title || d.site, url: d.site, type: 'page' }); r.error ? alert(r.error) : location.reload(); };
+      b.onclick = async () => { const r = await api('/api/sources', 'POST', { name: d.title || d.site, url: d.site, type: 'page' }); r.error ? toast(r.error, "error") : location.reload(); };
       box.appendChild(b);
     }
     return;
@@ -79,7 +79,7 @@ document.getElementById('discover-form')?.addEventListener('submit', async (e) =
     const row = document.createElement('div'); row.className = 'row'; row.style.marginBottom = '.4rem';
     row.innerHTML = '<span class="url">' + f.url + '</span><span class="muted">' + f.items + ' عنصر · ' + (f.title || '') + '</span>';
     const b = document.createElement('button'); b.className = 'ghost small'; b.textContent = 'أضف';
-    b.onclick = async () => { const r = await api('/api/sources', 'POST', { name: f.title || d.title || d.site, url: f.url, type: 'rss' }); r.error ? alert(r.error) : location.reload(); };
+    b.onclick = async () => { const r = await api('/api/sources', 'POST', { name: f.title || d.title || d.site, url: f.url, type: 'rss' }); r.error ? toast(r.error, "error") : location.reload(); };
     row.appendChild(b); box.appendChild(row);
   });
 });

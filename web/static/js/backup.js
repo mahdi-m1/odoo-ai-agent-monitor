@@ -91,3 +91,44 @@ document.getElementById('drive-table').addEventListener('click', (e) => {
     tb.appendChild(tr);
   });
 })();
+
+// ---- Push notifications ----
+function urlB64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function pushStatus() {
+  const el = document.getElementById('push-status');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) { if (el) el.textContent = 'غير مدعوم في هذا المتصفح'; return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    const st = await api('/api/push/state');
+    if (el) el.textContent = (sub ? 'مُفعّلة على هذا الجهاز' : 'غير مُفعّلة') + ' · مشتركون: ' + (st.subscriptions || 0) + ' · إذن: ' + Notification.permission;
+  } catch (e) { if (el) el.textContent = 'خطأ: ' + e; }
+}
+document.getElementById('btn-push-enable')?.addEventListener('click', async () => {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) { toast('المتصفح لا يدعم الإشعارات', 'error'); return; }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { toast('لم يُمنح إذن الإشعارات', 'error'); return; }
+  const { publicKey } = await api('/api/push/vapid');
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(publicKey) });
+  const r = await api('/api/push/subscribe', 'POST', sub.toJSON());
+  toast(r.ok ? 'تم تفعيل الإشعارات ✅' : 'تعذّر التفعيل', r.ok ? '' : 'error');
+  pushStatus();
+});
+document.getElementById('btn-push-test')?.addEventListener('click', async () => {
+  const r = await api('/api/push/test', 'POST');
+  toast(r.ok ? 'أُرسل إشعار تجريبي (' + r.sent + ')' : (r.skipped || r.error || 'لا مشتركين'), r.ok ? '' : 'error');
+});
+document.getElementById('btn-push-disable')?.addEventListener('click', async () => {
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) { await api('/api/push/unsubscribe', 'POST', { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+  toast('تم إيقاف الإشعارات على هذا الجهاز');
+  pushStatus();
+});
+if (document.getElementById('push-status')) pushStatus();

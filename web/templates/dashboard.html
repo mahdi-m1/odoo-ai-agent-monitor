@@ -1,26 +1,8 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>لوحة التحكم</title>
-  <meta name="theme-color" content="#efe4cc" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#241d17" media="(prefers-color-scheme: dark)" />
-  <meta name="color-scheme" content="light dark" />
-  <link rel="stylesheet" href="/static/css/style.css" />
-</head>
-<body>
-  <header class="top">
-    <h1>لوحة التحكم</h1>
-    <nav>
-      <a href="/">الرئيسية</a>
-      <a href="/chat">الدردشة</a>
-      <a href="/sources">المصادر والقنوات</a>
-      <a href="/memory">الذاكرة</a>
-      <a href="/backup">النسخ الاحتياطي</a>
-      <a href="/dashboard">لوحة التحكم</a>
-    </nav>
-  </header>
+{% extends "base.html" %}
+{% block title %}لوحة التحكم{% endblock %}
+{% block h1 %}لوحة التحكم{% endblock %}
+
+{% block content %}
   <main class="grid">
     <section class="card full">
       <h2>طلب تقرير</h2>
@@ -57,6 +39,9 @@
       </ul>
     </section>
   </main>
+{% endblock %}
+
+{% block scripts %}
   <script>
     document.getElementById('report-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -68,5 +53,4 @@
       out.textContent = data.report || JSON.stringify(data, null, 2);
     });
   </script>
-</body>
-</html>
+{% endblock %}

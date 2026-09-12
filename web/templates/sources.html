@@ -1,27 +1,9 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>المصادر والقنوات</title>
-  <meta name="theme-color" content="#efe4cc" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#241d17" media="(prefers-color-scheme: dark)" />
-  <meta name="color-scheme" content="light dark" />
-  <link rel="stylesheet" href="/static/css/style.css" />
-</head>
-<body>
-  <header class="top">
-    <h1>المصادر والقنوات</h1>
-    <p class="sub">القنوات التي يبحث فيها الوكيل عن الأخبار والتعيينات والتشريعات، وربط حسابات التواصل</p>
-    <nav>
-      <a href="/">الرئيسية</a>
-      <a href="/chat">الدردشة</a>
-      <a href="/sources">المصادر والقنوات</a>
-      <a href="/memory">الذاكرة</a>
-      <a href="/backup">النسخ الاحتياطي</a>
-      <a href="/dashboard">لوحة التحكم</a>
-    </nav>
-  </header>
+{% extends "base.html" %}
+{% block title %}المصادر والقنوات{% endblock %}
+{% block h1 %}المصادر والقنوات{% endblock %}
+{% block sub %}<p class="sub">القنوات التي يبحث فيها الوكيل عن الأخبار والتعيينات والتشريعات، وربط حسابات التواصل</p>{% endblock %}
+
+{% block content %}
   <main class="grid">
 
     <section class="card full">
@@ -113,7 +95,7 @@
           <tr data-pid="{{ p.id }}">
             <td>{{ p.id }}</td>
             <td>{% if not p.is_company %}&nbsp;&nbsp;└ {% endif %}{{ p.name }}</td>
-            <td><textarea class="links" rows="2" style="width:100%;background:#0d121a;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem">{{ get_links(p)|join('\n') }}</textarea></td>
+            <td><textarea class="links" rows="2">{{ get_links(p)|join('\n') }}</textarea></td>
             <td><button type="button" class="ghost small btn-links">حفظ</button></td>
           </tr>
           {% else %}
@@ -124,6 +106,6 @@
       <pre id="links-result" class="result" style="display:none"></pre>
     </section>
   </main>
-  <script src="/static/js/sources.js"></script>
-</body>
-</html>
+{% endblock %}
+
+{% block scripts %}<script src="/static/js/sources.js"></script>{% endblock %}
