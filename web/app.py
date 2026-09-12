@@ -33,6 +33,7 @@ from agent.monitors.social_monitor import verify_linkedin_token
 from agent.sources import SOURCE_TYPES, discover_feeds
 from agent.tools.odoo_tools import OdooTools
 from agent.reports.weekly_report import WeeklyReportGenerator
+from agent.reports import store as report_store
 from agent.monitors.full_cycle import run_full_monitoring
 from agent.smoke_test import run_smoke
 
@@ -236,12 +237,10 @@ def dashboard(request: Request):
         tree = odoo_tools.list_monitoring_tree()
     except Exception:
         pass
-    reports_dir = ROOT / "reports_output"
-    reports = sorted(reports_dir.glob("*.md"), reverse=True)[:15] if reports_dir.exists() else []
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"request": request, "tree": tree, "reports": [r.name for r in reports], "schedule": agent._read_schedule()},
+        {"request": request, "tree": tree, "reports": report_store.list_reports(), "report_stats": report_store.stats(), "schedule": agent._read_schedule()},
     )
 
 
@@ -451,16 +450,56 @@ def api_delete_partner(partner_id: int, body: ConfirmAction):
 
 @app.post("/api/report")
 def api_report(focus: str = Form(default="")):
+    # Report generation runs a full monitoring scan + Claude synthesis (can exceed the ~100s edge
+    # timeout), so run it as a background task and let the page poll /api/chat/task/{id}.
+    focus = (focus or "").strip()
+    kind = "مخصص" if focus else "أسبوعي"
+    tid = agent.start_task("report", f"إنشاء تقرير {kind}",
+        lambda progress, f=focus: (lambda r: {"ok": r.get("ok", True), "summary": f"تم إنشاء التقرير: {r.get('title', r.get('name'))}", "report": r})(
+            WeeklyReportGenerator(odoo=odoo_tools, claude=agent.claude).run_full_cycle(custom_focus=f, progress=progress)))
+    return {"task_id": tid, "kind": kind}
+
+
+@app.get("/api/reports")
+def api_reports(kind: Optional[str] = None, include_archived: bool = True):
+    return {"reports": report_store.list_reports(kind=kind, include_archived=include_archived), "stats": report_store.stats()}
+
+
+@app.get("/api/reports/{name}")
+def api_report_get(name: str):
+    r = report_store.get(name)
+    if not r:
+        return JSONResponse({"error": "تقرير غير موجود"}, status_code=404)
+    return r
+
+
+@app.get("/api/reports/{name}/download")
+def api_report_download(name: str):
+    p = report_store.path_of(name)
+    if not p:
+        return JSONResponse({"error": "غير موجود"}, status_code=404)
+    return FileResponse(str(p), filename=p.name, media_type="text/markdown")
+
+
+@app.post("/api/reports/{name}/archive")
+def api_report_archive(name: str):
     try:
-        gen = WeeklyReportGenerator(odoo=odoo_tools, claude=agent.claude)
-        result = gen.run_full_cycle(custom_focus=focus)
-        text = ""
-        path = result.get("path")
-        if path and Path(path).exists():
-            text = Path(path).read_text(encoding="utf-8")
-        return {"result": result, "report": text}
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return report_store.set_archived(name, True)
+    except KeyError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+
+
+@app.post("/api/reports/{name}/unarchive")
+def api_report_unarchive(name: str):
+    try:
+        return report_store.set_archived(name, False)
+    except KeyError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+
+
+@app.delete("/api/reports/{name}")
+def api_report_delete(name: str):
+    return {"ok": report_store.delete(name)}
 
 
 @app.post("/api/scan")

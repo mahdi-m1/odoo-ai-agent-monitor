@@ -5,23 +5,47 @@
 {% block content %}
   <main class="grid">
     <section class="card full">
-      <h2>طلب تقرير</h2>
-      <form id="report-form" class="form">
-        <input name="focus" placeholder="تركيز اختياري (مثال: البنوك في البحرين)" />
-        <button type="submit">إنشاء تقرير الآن</button>
+      <h2>إنشاء تقرير</h2>
+      <div id="report-tasks"></div>
+      <form id="report-form" class="row">
+        <input name="focus" id="report-focus" placeholder="تركيز التقرير المخصّص (مثال: البنوك الإسلامية في البحرين)…" />
+        <button type="submit" id="btn-custom">تقرير مخصّص</button>
+        <button type="button" class="ghost" id="btn-weekly">تقرير أسبوعي شامل</button>
       </form>
-      <pre id="report-result" class="result"></pre>
+      <p class="muted">التقرير يشغّل دورة مراقبة كاملة ثم يُصاغ عبر Claude — قد يستغرق دقائق، ويُحفظ ويُؤرشف تلقائياً.</p>
     </section>
-    <section class="card">
-      <h2>التقارير المحفوظة</h2>
-      <ul>
+
+    <section class="card full">
+      <h2>التقارير <span class="muted" id="rep-count">({{ report_stats.total }})</span></h2>
+      <div class="row" id="rep-filters" style="margin-bottom:.6rem">
+        <button type="button" class="chip-btn active" data-f="all">الكل ({{ report_stats.total }})</button>
+        <button type="button" class="chip-btn" data-f="weekly">أسبوعية ({{ report_stats.weekly }})</button>
+        <button type="button" class="chip-btn" data-f="custom">مخصّصة ({{ report_stats.custom }})</button>
+        <button type="button" class="chip-btn" data-f="archived">المؤرشفة ({{ report_stats.archived }})</button>
+      </div>
+      <div id="reports-list">
         {% for r in reports %}
-        <li>{{ r }}</li>
+        <div class="report-item" data-name="{{ r.name }}" data-kind="{{ r.kind }}" data-archived="{{ '1' if r.archived else '0' }}">
+          <div class="report-main">
+            <span class="badge {{ 'badge-weekly' if r.kind == 'weekly' else 'badge-custom' }}">{{ 'أسبوعي' if r.kind == 'weekly' else 'مخصّص' }}</span>
+            {% if r.archived %}<span class="badge badge-arch">مؤرشف</span>{% endif %}
+            <span class="report-title">{{ r.title }}</span>
+            <span class="muted report-date">{{ r.created_at[:16].replace('T',' ') }}</span>
+          </div>
+          <div class="report-actions">
+            <button type="button" class="ghost small btn-view">عرض</button>
+            <a class="ghost small" href="/api/reports/{{ r.name }}/download">تنزيل</a>
+            <button type="button" class="ghost small btn-arch">{{ 'إلغاء الأرشفة' if r.archived else 'أرشفة' }}</button>
+            <button type="button" class="ghost small danger btn-del">حذف</button>
+          </div>
+        </div>
         {% else %}
-        <li>لا توجد تقارير بعد.</li>
+        <p class="muted" id="rep-empty">لا توجد تقارير بعد — أنشئ تقريراً من الأعلى.</p>
         {% endfor %}
-      </ul>
+      </div>
+      <article id="report-viewer" class="report-viewer" hidden></article>
     </section>
+
     <section class="card">
       <h2>الجهات ({{ tree.total_partners or 0 }})</h2>
       <ul>
@@ -41,16 +65,4 @@
   </main>
 {% endblock %}
 
-{% block scripts %}
-  <script>
-    document.getElementById('report-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const out = document.getElementById('report-result');
-      out.textContent = 'جاري إنشاء التقرير…';
-      const res = await fetch('/api/report', { method: 'POST', body: fd });
-      const data = await res.json();
-      out.textContent = data.report || JSON.stringify(data, null, 2);
-    });
-  </script>
-{% endblock %}
+{% block scripts %}<script src="/static/js/dashboard.js"></script>{% endblock %}
