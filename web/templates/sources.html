@@ -26,15 +26,17 @@
       <div class="row" style="margin-bottom:.6rem">
         <button type="button" class="ghost" id="btn-test-all">فحص كل المصادر</button>
         <button type="button" class="ghost danger" id="btn-reset-sources">استعادة الافتراضية</button>
-        <span class="muted">search = قناة بحث تُستبدل فيها {q} باسم الجهة (الأدق) · rss = خلاصة أخبار · page = صفحة تُقرأ نصياً · legislation = موقع تشريعات</span>
+        <span class="muted">search = قناة بحث تُستبدل فيها {q} باسم الجهة (الأدق) · rss = خلاصة أخبار · page = صفحة تُقرأ نصياً · legislation = موقع تشريعات · JS = عرض بمتصفح للمواقع التفاعلية</span>
       </div>
+      <p class="muted">محرك المتصفح (JavaScript): {% if browser.available %}<span class="ok">مثبّت</span> ({{ browser.engine }}) — يُستخدم للمصادر المفعّل عليها JS فقط{% else %}<span class="bad">غير مثبّت</span> — لتفعيله: <code>python -m playwright install chromium</code>{% endif %}</p>
       <table id="sources-table">
-        <thead><tr><th>#</th><th>مفعّل</th><th>النوع</th><th>الاسم</th><th>الرابط</th><th>المنطقة</th><th>آخر فحص</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>مفعّل</th><th>JS</th><th>النوع</th><th>الاسم</th><th>الرابط</th><th>المنطقة</th><th>آخر فحص</th><th></th></tr></thead>
         <tbody>
           {% for s in sources %}
           <tr data-id="{{ s.id }}">
             <td>{{ s.id }}</td>
             <td><input type="checkbox" class="toggle" {% if s.enabled %}checked{% endif %} /></td>
+            <td>{% if s.type in ('page', 'legislation') %}<input type="checkbox" class="toggle-js" {% if s.render_js %}checked{% endif %} title="عرض بمتصفح (JavaScript)" />{% else %}—{% endif %}</td>
             <td>{{ s.type }}</td>
             <td>{{ s.name }}</td>
             <td><span class="url">{{ s.url }}</span></td>
@@ -46,7 +48,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="8">لا توجد مصادر — أضف مصدراً أدناه أو استعد الافتراضية.</td></tr>
+          <tr><td colspan="9">لا توجد مصادر — أضف مصدراً أدناه أو استعد الافتراضية.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -60,6 +62,7 @@
         <input name="url" placeholder="https://example.com/feed  أو  https://site/search?q={q}&format=rss *" required />
         <select name="type">{% for t in types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}</select>
         <input name="region" placeholder="المنطقة (Bahrain / GCC / Global)" />
+        <label class="inline"><input type="checkbox" name="render_js" /> عرض بمتصفح (JavaScript) — للمواقع التفاعلية</label>
         <button type="submit">إضافة وفحص</button>
       </form>
       <pre id="source-add-result" class="result"></pre>

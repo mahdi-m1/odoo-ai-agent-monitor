@@ -36,19 +36,21 @@ class LegislationMonitor:
     def scan_sources(self) -> List[Dict[str, Any]]:
         findings: List[Dict[str, Any]] = []
         for src in self.sources.enabled_legislation() or LEGISLATION_SOURCES:
-            text = self.search.fetch_page_text(src["url"], max_chars=4000)
-            if text:
+            page = self.search.fetch_page(src["url"], max_chars=4000, render_js=bool(src.get("render_js")))
+            text, docs = page.get("text", ""), page.get("documents", [])
+            if text or docs:
                 findings.append(
                     {
                         "source": src["name"],
                         "region": src.get("region"),
                         "url": src["url"],
                         "excerpt": text[:1500],
+                        "documents": docs[:20],
                         "fetched_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
                     }
                 )
             else:
-                logger.info("No text from %s", src["name"])
+                logger.info("No text/documents from %s", src["name"])
         return findings
 
     def match_entities(self, findings: List[Dict], entity_names: List[str]) -> List[Dict]:
@@ -89,4 +91,12 @@ class LegislationMonitor:
                 logged += 1
             except Exception as e:
                 logger.warning("Failed to log legislation for partner %s: %s", pid, e)
-        return {"sources": len(findings), "matched": len(matched), "logged": logged, "sample": matched[:5]}
+        # Archive newly-published documents (gazette PDFs etc.) even when no monitored entity is named
+        docs_new = 0
+        for f in findings:
+            for d in f.get("documents", []):
+                if memory.remember_event("وثيقة رسمية", "", d.get("label", "")[:120], f"من: {f.get('source', '')}",
+                                         url=d.get("url", ""), source=f.get("source", ""), importance=0.5) is not None:
+                    docs_new += 1
+        return {"sources": len(findings), "matched": len(matched), "logged": logged,
+                "documents_found": sum(len(f.get("documents", [])) for f in findings), "documents_new": docs_new, "sample": matched[:5]}

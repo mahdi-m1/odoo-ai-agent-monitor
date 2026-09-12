@@ -6,8 +6,9 @@ LinkedIn/social are structured for extension (official APIs or manual sources).
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import feedparser
 import httpx
@@ -142,21 +143,39 @@ class SearchTools:
                     results.append(item)
         return results
 
-    def fetch_page_text(self, url: str, max_chars: int = 8000) -> str:
+    def fetch_page_text(self, url: str, max_chars: int = 8000, render_js: bool = False) -> str:
+        return self.fetch_page(url, max_chars=max_chars, render_js=render_js).get("text", "")
+
+    def fetch_page(self, url: str, max_chars: int = 8000, render_js: bool = False) -> Dict[str, Any]:
+        """Fetch a page as text + document links. render_js uses a headless browser (for SPA/JS sites)."""
+        doc_re = re.compile(r"\.(pdf|docx?|xlsx?)(\?|#|$)", re.I)
+        if render_js:
+            from agent.tools.browser import get_renderer
+            renderer = get_renderer()
+            if renderer.available():
+                r = renderer.render(url, max_chars=max_chars)
+                if r["ok"]:
+                    return {"text": r.get("text", ""), "documents": r.get("documents", []), "title": r.get("title", ""), "rendered": True}
+                logger.info("JS render failed for %s (%s) — falling back to plain fetch", url, r.get("error"))
         try:
             r = self.client.get(url)
             r.raise_for_status()
             if is_challenge_page(r.text):
                 logger.warning("Page fetch blocked by bot protection: %s", url)
-                return ""
+                return {"text": "", "documents": [], "blocked": True}
             soup = BeautifulSoup(r.text, "lxml")
+            docs, seen = [], set()
+            for a in soup.find_all("a", href=True):
+                href = urljoin(url, a["href"])
+                if doc_re.search(href) and href not in seen:
+                    seen.add(href)
+                    docs.append({"url": href, "label": a.get_text(strip=True)[:120] or href.rsplit("/", 1)[-1]})
             for tag in soup(["script", "style", "nav", "footer"]):
                 tag.decompose()
-            text = soup.get_text(separator="\n", strip=True)
-            return text[:max_chars]
+            return {"text": soup.get_text(separator="\n", strip=True)[:max_chars], "documents": docs, "rendered": False}
         except Exception as e:
             logger.warning("Page fetch failed %s: %s", url, e)
-            return ""
+            return {"text": "", "documents": [], "error": str(e)}
 
     def filter_by_keywords(
         self,

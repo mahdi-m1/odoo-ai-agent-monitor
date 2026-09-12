@@ -11,10 +11,14 @@ function show(id, data) {
 // ---- sources table ----
 const table = document.getElementById('sources-table');
 table?.addEventListener('change', async (e) => {
-  if (!e.target.classList.contains('toggle')) return;
-  const id = e.target.closest('tr').dataset.id;
-  const d = await api('/api/sources/' + id, 'PATCH', { enabled: e.target.checked });
-  if (d.error) { alert(d.error); e.target.checked = !e.target.checked; }
+  const tr = e.target.closest('tr'); if (!tr) return;
+  if (e.target.classList.contains('toggle')) {
+    const d = await api('/api/sources/' + tr.dataset.id, 'PATCH', { enabled: e.target.checked });
+    if (d.error) { alert(d.error); e.target.checked = !e.target.checked; }
+  } else if (e.target.classList.contains('toggle-js')) {
+    const d = await api('/api/sources/' + tr.dataset.id, 'PATCH', { render_js: e.target.checked });
+    if (d.error) { alert(d.error); e.target.checked = !e.target.checked; }
+  }
 });
 table?.addEventListener('click', async (e) => {
   const tr = e.target.closest('tr');
@@ -46,6 +50,7 @@ document.getElementById('btn-reset-sources')?.addEventListener('click', async ()
 document.getElementById('source-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const body = Object.fromEntries(new FormData(e.target).entries());
+  body.render_js = e.target.querySelector('[name=render_js]')?.checked || false;
   const out = document.getElementById('source-add-result');
   out.textContent = 'جاري الإضافة والفحص…';
   const d = await api('/api/sources', 'POST', body);

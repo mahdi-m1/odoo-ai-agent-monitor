@@ -25,6 +25,7 @@ from agent import agent_settings
 from agent import backup as backup_mod
 from agent import memory as memory_mod
 from agent.gdrive import GDrive, GDriveError, save_credentials, unlink_drive
+from agent.tools.browser import get_renderer
 from agent.main import AIAgent
 from agent.monitors.social_monitor import verify_linkedin_token
 from agent.sources import SOURCE_TYPES, discover_feeds
@@ -86,6 +87,7 @@ class SourceIn(BaseModel):
     type: str = "rss"
     region: str = ""
     enabled: bool = True
+    render_js: bool = False
 
 
 class SourceUpdate(BaseModel):
@@ -94,6 +96,7 @@ class SourceUpdate(BaseModel):
     type: Optional[str] = None
     region: Optional[str] = None
     enabled: Optional[bool] = None
+    render_js: Optional[bool] = None
 
 
 class DiscoverIn(BaseModel):
@@ -199,7 +202,7 @@ def sources_page(request: Request):
         request,
         "sources.html",
         {"request": request, "sources": agent.sources.list(), "types": SOURCE_TYPES, "social": _social_public(),
-         "platforms": agent_settings.SOCIAL_PLATFORMS, "tree": tree, "get_links": odoo_tools.get_social_links},
+         "platforms": agent_settings.SOCIAL_PLATFORMS, "tree": tree, "get_links": odoo_tools.get_social_links, "browser": get_renderer().status()},
     )
 
 
@@ -274,7 +277,7 @@ def api_sources(type: Optional[str] = None, enabled: Optional[bool] = None):
 @app.post("/api/sources")
 def api_add_source(body: SourceIn):
     try:
-        row = agent.sources.add(body.name, body.url, body.type, body.region, body.enabled)
+        row = agent.sources.add(body.name, body.url, body.type, body.region, body.enabled, render_js=body.render_js)
         return {"source": row, "test": agent.sources.test(row["id"])}
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)

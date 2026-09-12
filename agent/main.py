@@ -12,6 +12,14 @@ from typing import Any, Dict, Optional
 from dotenv import load_dotenv
 
 from agent import agent_settings, backup as backup_mod
+
+
+def _renderer_status():
+    try:
+        from agent.tools.browser import get_renderer
+        return get_renderer().status()
+    except Exception as e:
+        return {"available": False, "error": str(e)}
 from agent.claude_cli import ClaudeCLI, SYSTEM_AGENT
 from agent.memory import get_memory, get_settings as memory_settings
 from agent.sources import SourceStore, discover_feeds
@@ -47,6 +55,7 @@ class AIAgent:
             "history_len": len(self.history),
             "memory": {k: v for k, v in self.memory.stats().items() if k not in ("settings",)},
             "backup": backup_mod.public_settings(),
+            "browser": _renderer_status(),
         }
 
     def handle(self, message: str) -> str:

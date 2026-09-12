@@ -50,6 +50,7 @@ def _seed() -> List[Dict[str, Any]]:
         if it["url"] in seen:
             continue
         seen.add(it["url"])
+        it.setdefault("render_js", False)
         it.update({"id": i, "added_at": datetime.utcnow().isoformat() + "Z", "last_check": None, "last_status": None, "last_items": 0})
         out.append(it)
     return out
@@ -89,7 +90,7 @@ class SourceStore:
         return self.list(type="page", enabled=True)
 
     # ---- write ----
-    def add(self, name: str, url: str, type: str = "rss", region: str = "", enabled: bool = True) -> Dict[str, Any]:
+    def add(self, name: str, url: str, type: str = "rss", region: str = "", enabled: bool = True, render_js: bool = False) -> Dict[str, Any]:
         url = (url or "").strip()
         if not url.startswith(("http://", "https://")):
             raise ValueError("الرابط يجب أن يبدأ بـ http:// أو https://")
@@ -102,7 +103,7 @@ class SourceStore:
             raise ValueError("هذا المصدر موجود مسبقاً")
         row = {
             "id": data["next_id"], "name": (name or urlparse(url).netloc).strip(), "url": url, "type": type,
-            "region": region or "", "enabled": bool(enabled),
+            "region": region or "", "enabled": bool(enabled), "render_js": bool(render_js),
             "added_at": datetime.utcnow().isoformat() + "Z", "last_check": None, "last_status": None, "last_items": 0,
         }
         data["sources"].append(row)
@@ -119,7 +120,7 @@ class SourceStore:
                         continue
                     if k == "type" and v not in SOURCE_TYPES:
                         raise ValueError("نوع غير صالح")
-                    if k in ("name", "url", "type", "region", "enabled", "last_check", "last_status", "last_items"):
+                    if k in ("name", "url", "type", "region", "enabled", "render_js", "last_check", "last_status", "last_items"):
                         r[k] = v
                 self.store.save(data)
                 return r
@@ -142,7 +143,7 @@ class SourceStore:
         row = self.get(source_id)
         if not row:
             raise KeyError(f"لا يوجد مصدر بالمعرف {source_id}")
-        result = probe_url(row["url"], row.get("type", "rss"))
+        result = probe_url(row["url"], row.get("type", "rss"), render_js=bool(row.get("render_js")))
         self.update(source_id, last_check=datetime.utcnow().isoformat() + "Z", last_status="ok" if result["ok"] else f"error: {result.get('error', '')[:80]}", last_items=result.get("items", 0))
         return result
 
@@ -150,9 +151,19 @@ class SourceStore:
         return [{"id": r["id"], "name": r["name"], **self.test(r["id"])} for r in self.list()]
 
 
-def probe_url(url: str, type: str = "rss") -> Dict[str, Any]:
+def probe_url(url: str, type: str = "rss", render_js: bool = False) -> Dict[str, Any]:
     """Fetch a source once and report whether it yields content."""
     try:
+        if render_js and type in ("page", "legislation"):
+            from agent.tools.browser import get_renderer
+            renderer = get_renderer()
+            if not renderer.available():
+                return {"ok": False, "items": 0, "error": "محرك المتصفح غير مثبت — python -m playwright install chromium"}
+            r = renderer.render(url, max_chars=2000)
+            if not r["ok"]:
+                return {"ok": False, "items": 0, "error": r.get("error", "render failed")}
+            return {"ok": len(r.get("text", "")) > 100 or bool(r.get("documents")), "items": len(r.get("documents", [])) or 1,
+                    "title": r.get("title", ""), "documents": r.get("documents", []), "sample": r.get("text", "")[:300], "rendered": True}
         if type in ("rss", "search"):
             if type == "search":
                 url = fill_query(url, SAMPLE_QUERY)
