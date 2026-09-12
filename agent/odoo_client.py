@@ -150,11 +150,17 @@ class OdooClient:
         if self.protocol == "json2":
             res = self._json2("res.partner", "create", {"vals_list": [values]})
             if isinstance(res, list) and res:
-                return int(res[0])
-            if isinstance(res, int):
-                return res
-            raise RuntimeError(f"Unexpected create response: {res}")
-        return self.execute("res.partner", "create", values)
+                pid = int(res[0])
+            elif isinstance(res, int):
+                pid = res
+            else:
+                raise RuntimeError(f"Unexpected create response: {res}")
+        else:
+            pid = self.execute("res.partner", "create", values)
+        # Odoo 19/20: is_company is read-only on create (silently ignored) but writable afterwards.
+        if values.get("is_company"):
+            self.write_partner(pid, {"is_company": True})
+        return pid
 
     def write_partner(self, partner_id: int, values: Dict[str, Any]) -> bool:
         if self.protocol == "json2":

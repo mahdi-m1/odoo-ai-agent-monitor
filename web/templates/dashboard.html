@@ -12,6 +12,7 @@
     <nav>
       <a href="/">الرئيسية</a>
       <a href="/chat">الدردشة</a>
+      <a href="/sources">المصادر والقنوات</a>
       <a href="/dashboard">لوحة التحكم</a>
     </nav>
   </header>
@@ -35,11 +36,19 @@
       </ul>
     </section>
     <section class="card">
-      <h2>الجهات ({{ partners|length }})</h2>
+      <h2>الجهات ({{ tree.total_partners or 0 }})</h2>
       <ul>
-        {% for p in partners %}
-        <li>#{{ p.id }} — {{ p.name }}</li>
+        {% for b in tree.companies %}
+        <li>#{{ b.company.id }} — {{ b.company.name }} ({{ b.people_count }} شخصية)</li>
         {% endfor %}
+        {% for pe in tree.orphan_people %}
+        <li>#{{ pe.id }} — {{ pe.name }}</li>
+        {% endfor %}
+      </ul>
+      <h3>الجدول</h3>
+      <ul class="muted">
+        <li>التقرير الأسبوعي: {{ schedule.WEEKLY_REPORT_DAY }} {{ schedule.WEEKLY_REPORT_HOUR }}:00</li>
+        <li>المسح اليومي: {{ schedule.DAILY_SCAN_HOUR }}:00 ({{ schedule.TIMEZONE }})</li>
       </ul>
     </section>
   </main>

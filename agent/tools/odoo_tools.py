@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from agent.odoo_client import OdooClient
 
 logger = logging.getLogger(__name__)
 MONITOR_TAG = "[AI-MONITOR]"
+SOCIAL_TAG = "[SOCIAL]"
+_SOCIAL_LINE = re.compile(r"^\s*\[SOCIAL\]\s*(https?://\S+)", re.I | re.M)
 
 
 class OdooTools:
@@ -177,6 +180,34 @@ class OdooTools:
         ok = self.client.write_partner(int(partner_id), vals)
         rows = self.client.search_partners(domain=[("id", "=", int(partner_id))], limit=1)
         return {"ok": bool(ok), "id": partner_id, "partner": rows[0] if rows else None, "written": vals}
+
+    # ---- social accounts stored as "[SOCIAL] <url>" lines in the partner note ----
+    @staticmethod
+    def get_social_links(partner: Dict[str, Any]) -> List[str]:
+        comment = str(partner.get("comment") or "")
+        comment = re.sub(r"<[^>]+>", "\n", comment)  # Odoo 17+ stores notes as HTML
+        return _SOCIAL_LINE.findall(comment)
+
+    def list_social_links(self, partner_id: int) -> List[str]:
+        rows = self.client.search_partners(domain=[("id", "=", int(partner_id))], limit=1)
+        return self.get_social_links(rows[0]) if rows else []
+
+    def set_social_links(self, partner_id: int, links: List[str]) -> Dict[str, Any]:
+        rows = self.client.search_partners(domain=[("id", "=", int(partner_id))], limit=1)
+        if not rows:
+            return {"ok": False, "error": f"لا توجد جهة بالمعرف {partner_id}"}
+        comment = re.sub(r"<[^>]+>", "\n", str(rows[0].get("comment") or ""))
+        kept = [ln for ln in comment.splitlines() if ln.strip() and not ln.strip().upper().startswith(SOCIAL_TAG)]
+        clean = []
+        for l in links:
+            l = (l or "").strip()
+            if l.startswith(("http://", "https://")) and l not in clean:
+                clean.append(l)
+        new_comment = "\n".join(kept + [f"{SOCIAL_TAG} {l}" for l in clean]).strip()
+        if MONITOR_TAG not in new_comment:
+            new_comment = f"{new_comment}\n{MONITOR_TAG}".strip()
+        ok = self.client.write_partner(int(partner_id), {"comment": new_comment})
+        return {"ok": bool(ok), "id": int(partner_id), "links": clean}
 
     def remove_from_monitor(self, partner_id: int, confirm: bool = False) -> Dict[str, Any]:
         if not confirm:

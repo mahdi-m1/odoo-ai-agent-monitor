@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from agent.sources import SourceStore
 from agent.tools.odoo_tools import OdooTools
 from agent.tools.search_tools import SearchTools
 
@@ -29,10 +30,11 @@ class LegislationMonitor:
     def __init__(self, odoo: OdooTools | None = None, search: SearchTools | None = None):
         self.odoo = odoo or OdooTools()
         self.search = search or SearchTools()
+        self.sources = SourceStore()
 
     def scan_sources(self) -> List[Dict[str, Any]]:
         findings: List[Dict[str, Any]] = []
-        for src in LEGISLATION_SOURCES:
+        for src in self.sources.enabled_legislation() or LEGISLATION_SOURCES:
             text = self.search.fetch_page_text(src["url"], max_chars=4000)
             if text:
                 findings.append(

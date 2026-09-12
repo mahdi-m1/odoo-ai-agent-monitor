@@ -6,7 +6,8 @@ import logging
 from typing import Any, Dict, List
 
 from agent.tools.odoo_tools import OdooTools
-from agent.tools.search_tools import SearchTools, DEFAULT_FEEDS
+from agent.sources import SourceStore
+from agent.tools.search_tools import SearchTools, entity_query
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,12 @@ class AppointmentsMonitor:
     def __init__(self, odoo: OdooTools | None = None, search: SearchTools | None = None):
         self.odoo = odoo or OdooTools()
         self.search = search or SearchTools()
+        self.sources = SourceStore()
 
     def run(self, limit_entities: int = 40) -> List[Dict[str, Any]]:
         partners = self.odoo.list_monitored(limit=limit_entities)
+        feeds = self.sources.enabled_feeds()
+        search_feeds = self.sources.enabled_search()
         results: List[Dict[str, Any]] = []
         keys = KEYWORDS_AR + KEYWORDS_EN
 
@@ -38,7 +42,7 @@ class AppointmentsMonitor:
             name = p.get("name") or ""
             if not name:
                 continue
-            hits = self.search.search_news_for_entity(name, feeds=DEFAULT_FEEDS, keywords=keys)
+            hits = self.search.search_news_for_entity(name, feeds=feeds, keywords=keys, search_feeds=search_feeds, query=entity_query(p))
             filtered = self.search.filter_by_keywords(hits, keys)
             for h in filtered:
                 h["partner_id"] = p.get("id")

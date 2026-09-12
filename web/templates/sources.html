@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>المصادر والقنوات</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="top">
+    <h1>المصادر والقنوات</h1>
+    <p class="sub">القنوات التي يبحث فيها الوكيل عن الأخبار والتعيينات والتشريعات، وربط حسابات التواصل</p>
+    <nav>
+      <a href="/">الرئيسية</a>
+      <a href="/chat">الدردشة</a>
+      <a href="/sources">المصادر والقنوات</a>
+      <a href="/dashboard">لوحة التحكم</a>
+    </nav>
+  </header>
+  <main class="grid">
+
+    <section class="card full">
+      <h2>قنوات البحث ({{ sources|length }})</h2>
+      <div class="row" style="margin-bottom:.6rem">
+        <button type="button" class="ghost" id="btn-test-all">فحص كل المصادر</button>
+        <button type="button" class="ghost danger" id="btn-reset-sources">استعادة الافتراضية</button>
+        <span class="muted">search = قناة بحث تُستبدل فيها {q} باسم الجهة (الأدق) · rss = خلاصة أخبار · page = صفحة تُقرأ نصياً · legislation = موقع تشريعات</span>
+      </div>
+      <table id="sources-table">
+        <thead><tr><th>#</th><th>مفعّل</th><th>النوع</th><th>الاسم</th><th>الرابط</th><th>المنطقة</th><th>آخر فحص</th><th></th></tr></thead>
+        <tbody>
+          {% for s in sources %}
+          <tr data-id="{{ s.id }}">
+            <td>{{ s.id }}</td>
+            <td><input type="checkbox" class="toggle" {% if s.enabled %}checked{% endif %} /></td>
+            <td>{{ s.type }}</td>
+            <td>{{ s.name }}</td>
+            <td><span class="url">{{ s.url }}</span></td>
+            <td>{{ s.region or '—' }}</td>
+            <td class="status">{{ s.last_status or '—' }}{% if s.last_items %} ({{ s.last_items }}){% endif %}</td>
+            <td>
+              <button type="button" class="ghost small btn-test">فحص</button>
+              <button type="button" class="ghost small danger btn-del">حذف</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8">لا توجد مصادر — أضف مصدراً أدناه أو استعد الافتراضية.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <pre id="sources-result" class="result" style="display:none"></pre>
+    </section>
+
+    <section class="card">
+      <h2>إضافة مصدر</h2>
+      <form id="source-form" class="form">
+        <input name="name" placeholder="الاسم (اختياري)" />
+        <input name="url" placeholder="https://example.com/feed  أو  https://site/search?q={q}&format=rss *" required />
+        <select name="type">{% for t in types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}</select>
+        <input name="region" placeholder="المنطقة (Bahrain / GCC / Global)" />
+        <button type="submit">إضافة وفحص</button>
+      </form>
+      <pre id="source-add-result" class="result"></pre>
+    </section>
+
+    <section class="card">
+      <h2>اكتشاف مصادر من موقع</h2>
+      <p class="muted">أدخل رابط موقع إخباري أو رسمي؛ سيبحث الوكيل عن خلاصات RSS/Atom فيه.</p>
+      <form id="discover-form" class="form">
+        <input name="url" placeholder="https://www.bna.bh" required />
+        <button type="submit">اكتشف</button>
+      </form>
+      <div id="discover-result"></div>
+    </section>
+
+    <section class="card full">
+      <h2>قنوات التواصل الاجتماعي</h2>
+      <div class="checks" style="margin-bottom:.6rem">
+        <label><input type="checkbox" id="soc-enabled" {% if social.social_enabled %}checked{% endif %} /> تفعيل مراقبة حسابات التواصل</label>
+        <label><input type="checkbox" id="soc-fetch" {% if social.public_fetch %}checked{% endif %} /> قراءة الصفحات العامة</label>
+      </div>
+      <div class="checks" style="margin-bottom:.6rem">
+        <span class="muted">المنصات:</span>
+        {% for p in platforms %}<label><input type="checkbox" class="soc-plat" value="{{ p }}" {% if p in social.platforms %}checked{% endif %} /> {{ p }}</label>{% endfor %}
+      </div>
+      <div class="row" style="margin-bottom:.4rem">
+        <label><input type="checkbox" id="li-enabled" {% if social.linkedin_enabled %}checked{% endif %} /> LinkedIn API</label>
+        <input id="li-token" type="password" placeholder="{% if social.linkedin_token_set %}token محفوظ — اتركه فارغاً للإبقاء عليه{% else %}LinkedIn Access Token (OAuth){% endif %}" />
+        <button type="button" class="ghost" id="btn-li-verify">تحقق من التوكن</button>
+        <button type="button" id="btn-soc-save">حفظ</button>
+      </div>
+      <pre id="social-result" class="result"></pre>
+    </section>
+
+    <section class="card full">
+      <h2>ربط حسابات الجهات المراقبة</h2>
+      <p class="muted">تُحفظ الروابط في ملاحظة الجهة داخل Odoo بصيغة <code>[SOCIAL] الرابط</code>. افصل الروابط بفاصلة أو سطر جديد.</p>
+      <table>
+        <thead><tr><th>#</th><th>الجهة</th><th>الحسابات</th><th></th></tr></thead>
+        <tbody>
+          {% set rows = [] %}
+          {% for b in tree.companies %}{% set _ = rows.append(b.company) %}{% for pe in b.people %}{% set _ = rows.append(pe) %}{% endfor %}{% endfor %}
+          {% for pe in tree.orphan_people %}{% set _ = rows.append(pe) %}{% endfor %}
+          {% for p in rows %}
+          <tr data-pid="{{ p.id }}">
+            <td>{{ p.id }}</td>
+            <td>{% if not p.is_company %}&nbsp;&nbsp;└ {% endif %}{{ p.name }}</td>
+            <td><textarea class="links" rows="2" style="width:100%;background:#0d121a;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem">{{ get_links(p)|join('\n') }}</textarea></td>
+            <td><button type="button" class="ghost small btn-links">حفظ</button></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">لا توجد جهات بعد.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <pre id="links-result" class="result" style="display:none"></pre>
+    </section>
+  </main>
+  <script src="/static/js/sources.js"></script>
+</body>
+</html>

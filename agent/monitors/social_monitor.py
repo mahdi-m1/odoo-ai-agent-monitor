@@ -1,53 +1,77 @@
 """Optional social / LinkedIn monitor (disabled by default).
 
-Activated via env:
-  SOCIAL_ENABLED=true        -> fetch public social links stored on partners ([SOCIAL] in comment)
-  SOCIAL_PUBLIC_FETCH=true   -> allow fetching public pages
-  LINKEDIN_ENABLED=true + LINKEDIN_ACCESS_TOKEN=... -> reserved for official API integration
+Configured from the web UI (data/agent_settings.json → "social") with .env fallback:
+  SOCIAL_ENABLED / SOCIAL_PUBLIC_FETCH / LINKEDIN_ENABLED + LINKEDIN_ACCESS_TOKEN
+Per-partner accounts are stored on the Odoo partner as `[SOCIAL] <url>` lines (see OdooTools.set_social_links).
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import re
 from typing import Any, Dict, List
 
+import httpx
+
+from agent import agent_settings
 from agent.tools.odoo_tools import OdooTools
 from agent.tools.search_tools import SearchTools
 
 logger = logging.getLogger(__name__)
 
-_URL_RE = re.compile(r"https?://[^\s<>\"']+")
+PLATFORM_DOMAINS = {
+    "linkedin": ("linkedin.com",),
+    "x": ("x.com", "twitter.com"),
+    "instagram": ("instagram.com",),
+    "facebook": ("facebook.com", "fb.com"),
+    "youtube": ("youtube.com", "youtu.be"),
+    "tiktok": ("tiktok.com",),
+}
 
 
-def _flag(name: str) -> bool:
-    return os.getenv(name, "false").strip().lower() in ("1", "true", "yes", "on")
+def platform_of(url: str) -> str:
+    u = (url or "").lower()
+    for name, domains in PLATFORM_DOMAINS.items():
+        if any(d in u for d in domains):
+            return name
+    return "other"
+
+
+def verify_linkedin_token(token: str) -> Dict[str, Any]:
+    """Validate a LinkedIn OAuth token against the userinfo endpoint (OpenID Connect scope)."""
+    if not token:
+        return {"ok": False, "error": "لا يوجد token"}
+    try:
+        r = httpx.get("https://api.linkedin.com/v2/userinfo", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        if r.status_code == 200:
+            j = r.json()
+            return {"ok": True, "name": j.get("name"), "email": j.get("email"), "sub": j.get("sub")}
+        return {"ok": False, "status": r.status_code, "error": r.text[:200]}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 class SocialMonitor:
     def __init__(self, odoo: OdooTools | None = None, search: SearchTools | None = None):
         self.odoo = odoo or OdooTools()
         self.search = search or SearchTools()
-        self.social_enabled = _flag("SOCIAL_ENABLED")
-        self.public_fetch = _flag("SOCIAL_PUBLIC_FETCH")
-        self.linkedin_enabled = _flag("LINKEDIN_ENABLED") and bool(os.getenv("LINKEDIN_ACCESS_TOKEN"))
+        cfg = agent_settings.get_social()
+        self.social_enabled = cfg["social_enabled"]
+        self.public_fetch = cfg["public_fetch"]
+        self.linkedin_enabled = cfg["linkedin_enabled"] and bool(cfg["linkedin_token"])
+        self.platforms = set(cfg["platforms"])
         self.active = self.social_enabled or self.linkedin_enabled
-
-    @staticmethod
-    def _social_links(partner: Dict[str, Any]) -> List[str]:
-        text = " ".join(str(partner.get(k) or "") for k in ("comment", "website"))
-        links = _URL_RE.findall(text)
-        return [l for l in links if any(d in l for d in ("linkedin.com", "x.com", "twitter.com", "instagram.com"))]
 
     def run(self, limit_entities: int = 40) -> List[Dict[str, Any]]:
         if not self.active:
-            logger.info("SocialMonitor disabled (SOCIAL_ENABLED / LINKEDIN_ENABLED not set)")
+            logger.info("SocialMonitor disabled")
             return []
         hits: List[Dict[str, Any]] = []
         for p in self.odoo.list_monitored(limit=limit_entities):
-            for link in self._social_links(p):
-                item = {"partner_id": p.get("id"), "partner_name": p.get("name"), "link": link}
+            for link in self.odoo.get_social_links(p):
+                plat = platform_of(link)
+                if plat != "other" and plat not in self.platforms:
+                    continue
+                item = {"partner_id": p.get("id"), "partner_name": p.get("name"), "platform": plat, "link": link}
                 if self.public_fetch:
                     item["excerpt"] = self.search.fetch_page_text(link, max_chars=1500)
                 hits.append(item)
@@ -55,14 +79,14 @@ class SocialMonitor:
 
     def run_and_log(self, limit_entities: int = 40) -> Dict[str, Any]:
         if not self.active:
-            return {"active": False, "hits": 0, "logged": 0, "note": "معطّل — فعّل SOCIAL_ENABLED أو LINKEDIN_ENABLED"}
+            return {"active": False, "hits": 0, "logged": 0, "note": "معطّل — فعّل قنوات التواصل من صفحة «المصادر والقنوات»"}
         hits = self.run(limit_entities=limit_entities)
         logged = 0
         for h in hits[:50]:
             if not h.get("excerpt"):
                 continue
             try:
-                self.odoo.log_event(h["partner_id"], f"[تواصل] {h['link'][:100]}", h["excerpt"][:400], as_activity=False)
+                self.odoo.log_event(h["partner_id"], f"[تواصل/{h['platform']}] {h['link'][:100]}", h["excerpt"][:400], as_activity=False)
                 logged += 1
             except Exception as e:
                 logger.warning("Failed to log social event for %s: %s", h.get("partner_id"), e)

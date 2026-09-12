@@ -126,3 +126,26 @@ th { color: var(--muted); }
   color: var(--text);
 }
 .hint { color: var(--muted); font-size: 0.85rem; }
+
+/* --- agent status bar / pills --- */
+.agent-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.6rem; font-size: 0.85rem; }
+.pill { padding: 0.25rem 0.6rem; border-radius: 999px; background: #243044; border: 1px solid var(--border); color: var(--muted); }
+.pill.ok-pill { border-color: var(--ok); color: var(--ok); }
+.pill.bad-pill { border-color: var(--bad); color: var(--bad); }
+label.inline { display: inline-flex; gap: 0.35rem; align-items: center; color: var(--muted); }
+select, .form select {
+  padding: 0.35rem 0.5rem; border-radius: 8px; border: 1px solid var(--border);
+  background: #0d121a; color: var(--text); font-family: inherit;
+}
+button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 0.35rem 0.7rem; border-radius: 8px; cursor: pointer; }
+button.ghost:hover { border-color: var(--accent); }
+button.small { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
+button.danger { border-color: var(--bad); color: var(--bad); }
+.bubble.pending { opacity: 0.6; font-style: italic; }
+.row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.row input { flex: 1; min-width: 140px; }
+.muted { color: var(--muted); font-size: 0.85rem; }
+td .url { font-family: monospace; font-size: 0.8rem; word-break: break-all; color: var(--muted); }
+.toggle { cursor: pointer; }
+.checks { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.checks label { display: inline-flex; gap: 0.3rem; align-items: center; }

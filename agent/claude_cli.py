@@ -1,26 +1,33 @@
 """
 Wrapper around Claude CLI (subscription-based).
-Uses subprocess to call `claude` — no separate API key required when logged in.
+Uses subprocess to call `claude -p` — no separate API key required when logged in.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
+
+from agent import agent_settings
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+# The chat runs on a public web server: never let the model touch the local filesystem/shell.
+DENIED_TOOLS = "Bash,Edit,Write,MultiEdit,NotebookEdit,Read,Glob,Grep,Agent,Task"
+
 
 class ClaudeCLI:
-    """Invoke Claude Code / Claude CLI with a prompt and return text response."""
+    """Invoke Claude Code CLI with a prompt and return text response."""
 
     def __init__(
         self,
@@ -29,85 +36,131 @@ class ClaudeCLI:
         timeout: int = 180,
     ):
         self.cli_path = cli_path or os.getenv("CLAUDE_CLI_PATH", "claude")
-        self.model = model or os.getenv("CLAUDE_MODEL", "")
+        self._model_override = model
         self.timeout = timeout
         self._resolved = shutil.which(self.cli_path) or self.cli_path
+        self._version: Optional[str] = None
+        self.session_id: Optional[str] = None
+        self.last: Dict[str, Any] = {}
+        self.calls = 0
+        self.total_cost_usd = 0.0
+
+    # ---- status / model ----
+    @property
+    def model(self) -> str:
+        return self._model_override or agent_settings.get_model()
+
+    def set_model(self, model: str) -> str:
+        self._model_override = None
+        agent_settings.set_model(model)
+        self.reset_session()
+        return self.model
+
+    def reset_session(self) -> None:
+        self.session_id = None
 
     def available(self) -> bool:
         return bool(shutil.which(self.cli_path) or Path(self.cli_path).exists())
 
-    def run(
-        self,
-        prompt: str,
-        system: Optional[str] = None,
-        print_only: bool = True,
-    ) -> str:
-        full_prompt = prompt
+    def version(self) -> str:
+        if self._version is None:
+            try:
+                out = subprocess.run([self._resolved, "--version"], capture_output=True, text=True, timeout=20)
+                self._version = (out.stdout or out.stderr or "").strip().splitlines()[0] if (out.stdout or out.stderr) else ""
+            except Exception as e:
+                self._version = f"? ({e})"
+        return self._version
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "available": self.available(),
+            "path": self._resolved,
+            "version": self.version() if self.available() else None,
+            "model": self.model or "(الافتراضي في Claude CLI)",
+            "effort": agent_settings.get_effort() or "default",
+            "models": agent_settings.MODELS,
+            "session_id": self.session_id,
+            "calls": self.calls,
+            "total_cost_usd": round(self.total_cost_usd, 4),
+            "last": self.last,
+        }
+
+    # ---- calls ----
+    def _base_cmd(self, prompt: str, system: Optional[str], json_out: bool) -> List[str]:
+        cmd: List[str] = [self._resolved, "-p", prompt, "--disallowedTools", DENIED_TOOLS]
+        if json_out:
+            cmd += ["--output-format", "json"]
         if system:
-            full_prompt = f"{system.strip()}\n\n---\n\n{prompt.strip()}"
-
-        cmd: List[str] = [self._resolved]
-        if print_only:
-            cmd.extend(["-p", full_prompt])
-        else:
-            cmd.append(full_prompt)
-
+            cmd += ["--append-system-prompt", system.strip()]
         if self.model:
-            cmd.extend(["--model", self.model])
+            cmd += ["--model", self.model]
+        effort = agent_settings.get_effort()
+        if effort:
+            cmd += ["--effort", effort]
+        return cmd
 
-        env = os.environ.copy()
-
+    def complete(self, prompt: str, system: Optional[str] = None, keep_session: bool = False) -> str:
+        """Single-shot completion. With keep_session=True the conversation continues across calls."""
+        if not self.available():
+            raise RuntimeError(f"Claude CLI غير موجود في '{self.cli_path}'. ثبّت Claude Code وسجّل الدخول بـ `claude`.")
+        cmd = self._base_cmd(prompt, system, json_out=True)
+        if keep_session and self.session_id:
+            cmd += ["--resume", self.session_id]
+        started = datetime.now()
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                env=env,
-            )
-            if result.returncode != 0:
-                err = (result.stderr or result.stdout or "").strip()
-                logger.error("Claude CLI failed (code=%s): %s", result.returncode, err[:500])
-                return self._run_stdin(full_prompt)
-            return (result.stdout or "").strip()
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, env=os.environ.copy())
         except FileNotFoundError:
-            raise RuntimeError(
-                f"Claude CLI not found at '{self.cli_path}'. "
-                "Install Claude Code and run `claude` to login with your subscription."
-            )
+            raise RuntimeError(f"Claude CLI غير موجود في '{self.cli_path}'.")
         except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Claude CLI timed out after {self.timeout}s")
+            self._record(started, ok=False, error=f"timeout after {self.timeout}s")
+            raise RuntimeError(f"انتهت مهلة Claude CLI ({self.timeout}s)")
 
-    def _run_stdin(self, prompt: str) -> str:
-        cmd = [self._resolved]
-        if self.model:
-            cmd.extend(["--model", self.model])
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=self.timeout,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Claude CLI stdin mode failed: {(result.stderr or result.stdout)[:400]}"
-            )
-        return (result.stdout or "").strip()
+        data: Dict[str, Any] = {}
+        try:
+            data = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError:
+            pass
+        text = (data.get("result") if isinstance(data, dict) else None) or (result.stdout or "").strip()
+
+        if result.returncode != 0 or (isinstance(data, dict) and data.get("is_error")):
+            err = (text or result.stderr or "").strip()[:500]
+            # A stale session id is the usual cause — retry once without it.
+            if keep_session and self.session_id and "session" in err.lower():
+                self.session_id = None
+                return self.complete(prompt, system, keep_session=False)
+            self._record(started, ok=False, error=err, data=data)
+            raise RuntimeError(err or f"Claude CLI failed (code={result.returncode})")
+
+        if keep_session and data.get("session_id"):
+            self.session_id = data["session_id"]
+        self._record(started, ok=True, data=data)
+        return text
+
+    def _record(self, started: datetime, ok: bool, error: str = "", data: Optional[Dict[str, Any]] = None) -> None:
+        data = data or {}
+        cost = float(data.get("total_cost_usd") or 0)
+        self.calls += 1
+        self.total_cost_usd += cost
+        self.last = {
+            "at": started.isoformat(timespec="seconds"),
+            "ok": ok,
+            "error": error or None,
+            "model_used": ", ".join((data.get("modelUsage") or {}).keys()) or None,
+            "duration_ms": data.get("duration_ms"),
+            "cost_usd": round(cost, 4),
+            "num_turns": data.get("num_turns"),
+        }
+
+    # Backwards-compatible aliases
+    def run(self, prompt: str, system: Optional[str] = None, print_only: bool = True) -> str:
+        return self.complete(prompt, system=system)
 
     def run_with_context_file(self, prompt: str, context: str) -> str:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", delete=False, encoding="utf-8"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
             f.write(context)
             path = f.name
         try:
-            augmented = (
-                f"الملف السياقي موجود في: {path}\n"
-                f"اقرأ المحتوى واستخدمه للإجابة.\n\n"
-                f"{prompt}"
-            )
-            return self.run(augmented)
+            return self.complete(f"السياق:\n{Path(path).read_text(encoding='utf-8')[:60000]}\n\n{prompt}")
         finally:
             try:
                 os.unlink(path)

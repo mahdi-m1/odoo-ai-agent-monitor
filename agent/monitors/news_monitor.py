@@ -6,7 +6,8 @@ import logging
 from typing import Any, Dict, List
 
 from agent.tools.odoo_tools import OdooTools
-from agent.tools.search_tools import SearchTools, DEFAULT_FEEDS
+from agent.sources import SourceStore
+from agent.tools.search_tools import SearchTools, entity_query
 
 logger = logging.getLogger(__name__)
 
@@ -15,16 +16,19 @@ class NewsMonitor:
     def __init__(self, odoo: OdooTools | None = None, search: SearchTools | None = None):
         self.odoo = odoo or OdooTools()
         self.search = search or SearchTools()
+        self.sources = SourceStore()
 
     def run(self, limit_entities: int = 40) -> List[Dict[str, Any]]:
         partners = self.odoo.list_monitored(limit=limit_entities)
+        feeds = self.sources.enabled_feeds()
+        search_feeds = self.sources.enabled_search()
         all_hits: List[Dict[str, Any]] = []
 
         for p in partners:
             name = p.get("name") or ""
             if not name:
                 continue
-            hits = self.search.search_news_for_entity(name, feeds=DEFAULT_FEEDS)
+            hits = self.search.search_news_for_entity(name, feeds=feeds, search_feeds=search_feeds, query=entity_query(p))
             for h in hits:
                 h["partner_id"] = p.get("id")
                 h["partner_name"] = name
@@ -52,4 +56,4 @@ class NewsMonitor:
                 logged += 1
             except Exception as e:
                 logger.warning("Failed to log event for partner %s: %s", pid, e)
-        return {"hits": len(hits), "logged": logged, "sample": hits[:5]}
+        return {"hits": len(hits), "logged": logged, "channels_used": len(self.sources.enabled_feeds()) + len(self.sources.enabled_search()), "sample": hits[:5]}

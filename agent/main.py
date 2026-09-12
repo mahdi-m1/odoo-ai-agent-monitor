@@ -11,12 +11,14 @@ from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
-from agent.claude_cli import ClaudeCLI
+from agent import agent_settings
+from agent.claude_cli import ClaudeCLI, SYSTEM_AGENT
+from agent.sources import SourceStore, discover_feeds
 from agent.tools.odoo_tools import OdooTools
 from agent.monitors.news_monitor import NewsMonitor
 from agent.monitors.appointments_monitor import AppointmentsMonitor
 from agent.monitors.legislation_monitor import LegislationMonitor
-from agent.monitors.social_monitor import SocialMonitor
+from agent.monitors.social_monitor import SocialMonitor, verify_linkedin_token
 from agent.monitors.full_cycle import run_full_monitoring
 from agent.reports.weekly_report import WeeklyReportGenerator
 from agent.smoke_test import run_smoke
@@ -30,6 +32,18 @@ class AIAgent:
     def __init__(self):
         self.odoo = OdooTools()
         self.claude = ClaudeCLI()
+        self.sources = SourceStore()
+        self.history: list[dict] = []  # last exchanges, shown in the UI and used as fallback context
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "odoo": self.odoo.health(),
+            "claude": self.claude.status(),
+            "schedule": self._read_schedule(),
+            "sources": {"total": len(self.sources.list()), "enabled": len(self.sources.list(enabled=True))},
+            "social": {k: v for k, v in agent_settings.get_social().items() if k != "linkedin_token"} | {"linkedin_token_set": bool(agent_settings.get_social()["linkedin_token"])},
+            "history_len": len(self.history),
+        }
 
     def handle(self, message: str) -> str:
         msg = (message or "").strip()
@@ -38,17 +52,30 @@ class AIAgent:
         local = self._try_local_commands(msg)
         if local is not None:
             return local
+        reply = self._ask_claude(msg)
+        self.history.append({"user": msg, "agent": reply[:2000]})
+        self.history = self.history[-20:]
+        return reply
+
+    def _ask_claude(self, msg: str) -> str:
+        if not self.claude.available():
+            return "Claude CLI غير مثبت أو غير مسجّل الدخول. الأوامر المحلية متاحة — اكتب «مساعدة»."
         try:
             partners = self.odoo.list_monitored(limit=15)
-            ctx = "الجهات المراقبة:\n" + "\n".join(
-                f"- #{p.get('id')} {p.get('name')} ({'شركة' if p.get('is_company') else 'شخص'})"
-                for p in partners
+            ctx = "الجهات المراقبة حالياً في Odoo:\n" + "\n".join(
+                f"- #{p.get('id')} {p.get('name')} ({'شركة' if p.get('is_company') else 'شخص'})" for p in partners
             )
         except Exception as e:
             ctx = f"(تعذر قراءة Odoo: {e})"
-        prompt = f"أنت وكيل مراقبة أعمال فوق Odoo. أجب بالعربية باختصار عملي.\n{ctx}\n\nطلب المستخدم: {msg}"
+        feeds = ", ".join(f["name"] for f in self.sources.enabled_feeds()) or "لا توجد"
+        system = (
+            SYSTEM_AGENT
+            + f"\n{ctx}\nالقنوات المفعّلة للبحث: {feeds}\n"
+            "الأوامر المحلية التي يمكن للمستخدم كتابتها مباشرة: قائمة، أضف شركة، أضف شخص، تقرير، راقب أخبار، مصادر، نموذج، حالة."
+            "\nأجب بالعربية وبإيجاز عملي."
+        )
         try:
-            return self.claude.complete(prompt)
+            return self.claude.complete(msg, system=system, keep_session=True)
         except Exception as e:
             return f"تعذر استدعاء Claude CLI: {e}\nاستخدم الأوامر المحلية (مساعدة)."
 
@@ -70,14 +97,50 @@ class AIAgent:
                 "- راقب أخبار | تعيينات | تشريعات | تواصل\n"
                 "- جدول | جدول يوم=sunday ساعة=8\n"
                 "- حالة / status\n"
+                "- نموذج | نموذج sonnet : عرض/تبديل نموذج Claude (opus, sonnet, haiku, fable)\n"
+                "- جهد high : مستوى الجهد (low, medium, high, xhigh, max)\n"
+                "- محادثة جديدة : بدء جلسة Claude جديدة\n"
+                "- مصادر : قنوات البحث | أضف مصدر: الاسم، الرابط، النوع(rss|page|legislation)، المنطقة\n"
+                "- فعّل مصدر ID | عطّل مصدر ID | احذف مصدر ID | اختبر مصدر ID | اختبر المصادر\n"
+                "- اكتشف مصادر: https://example.com : إيجاد خلاصات RSS لموقع\n"
+                "- تواصل : إعدادات قنوات التواصل | فعّل تواصل | عطّل تواصل\n"
+                "- روابط ID: https://linkedin.com/... , https://x.com/... : ربط حسابات جهة\n"
                 "- اختبار / smoke : اختبار دخان بدون توكنات Claude"
             )
 
         if lower in ("حالة", "status"):
-            return json.dumps(
-                {"odoo": self.odoo.health(), "claude_cli": self.claude.available(), "schedule": self._read_schedule()},
-                ensure_ascii=False, indent=2,
-            )
+            return json.dumps(self.status(), ensure_ascii=False, indent=2, default=str)
+
+        if lower in ("محادثة جديدة", "new chat", "reset"):
+            self.claude.reset_session()
+            self.history.clear()
+            return "بدأت محادثة جديدة مع Claude."
+
+        m = re.match(r"(?:نموذج|model)(?:\s+(\S+))?$", lower)
+        if m:
+            if m.group(1):
+                try:
+                    return f"تم تبديل النموذج إلى: {self.claude.set_model(m.group(1))}"
+                except ValueError as e:
+                    return str(e)
+            st = self.claude.status()
+            opts = "\n".join(f"- {x['id']}: {x['label']}" for x in st["models"])
+            return f"النموذج الحالي: {st['model']}\nالمتاح:\n{opts}\nللتبديل: نموذج sonnet"
+
+        m = re.match(r"(?:جهد|effort)\s+(\w+)$", lower)
+        if m:
+            try:
+                return f"مستوى الجهد: {agent_settings.set_effort(m.group(1)) or 'default'}"
+            except ValueError as e:
+                return str(e)
+
+        src = self._handle_sources(msg, lower)
+        if src is not None:
+            return src
+
+        soc = self._handle_social(msg, lower)
+        if soc is not None:
+            return soc
 
         if lower in ("قائمة", "list", "المراقبة"):
             try:
@@ -176,6 +239,75 @@ class AIAgent:
         if lower in ("اختبار", "smoke", "smoke test", "اختبار دخان"):
             return run_smoke(keep_records=False, skip_network_search=True).format_ar()
 
+        return None
+
+    def _handle_sources(self, msg: str, lower: str) -> Optional[str]:
+        if lower in ("مصادر", "المصادر", "sources", "قنوات"):
+            rows = self.sources.list()
+            if not rows:
+                return "لا توجد مصادر. أضف مصدراً: أضف مصدر: الاسم، الرابط"
+            lines = [f"#{r['id']} {'✅' if r['enabled'] else '⛔'} [{r['type']}] {r['name']} — {r['url']} ({r.get('region') or '—'}) آخر فحص: {r.get('last_status') or '—'}" for r in rows]
+            return "قنوات البحث:\n" + "\n".join(lines)
+
+        m = re.match(r"أضف\s+مصدر\s*[:：]\s*(.+)", msg, re.I | re.S)
+        if m:
+            parts = [x.strip() for x in re.split(r"[,،]", m.group(1))]
+            if len(parts) < 2:
+                return "الصيغة: أضف مصدر: الاسم، الرابط، النوع(rss|page|legislation)، المنطقة"
+            try:
+                row = self.sources.add(parts[0], parts[1], parts[2] if len(parts) > 2 else "rss", parts[3] if len(parts) > 3 else "")
+                test = self.sources.test(row["id"])
+                return f"أُضيف المصدر #{row['id']} ({row['type']}). الفحص: {'✅ ' + str(test.get('items')) + ' عنصر' if test['ok'] else '⚠️ ' + str(test.get('error'))}"
+            except ValueError as e:
+                return str(e)
+
+        m = re.match(r"(فع[ّ]?ل|عط[ّ]?ل|احذف|اختبر)\s+مصدر\s+(\d+)", msg, re.I)
+        if m:
+            sid = int(m.group(2))
+            verb = m.group(1).replace("ّ", "")
+            try:
+                if verb == "فعل":
+                    self.sources.update(sid, enabled=True); return f"تم تفعيل المصدر #{sid}"
+                if verb == "عطل":
+                    self.sources.update(sid, enabled=False); return f"تم تعطيل المصدر #{sid}"
+                if verb == "احذف":
+                    return f"تم حذف المصدر #{sid}" if self.sources.remove(sid) else f"لا يوجد مصدر #{sid}"
+                return json.dumps(self.sources.test(sid), ensure_ascii=False, indent=2)[:1500]
+            except KeyError as e:
+                return str(e)
+
+        if lower in ("اختبر المصادر", "test sources"):
+            res = self.sources.test_all()
+            return "نتائج فحص المصادر:\n" + "\n".join(f"#{r['id']} {r['name']}: {'✅ ' + str(r.get('items')) if r['ok'] else '⚠️ ' + str(r.get('error'))[:80]}" for r in res)
+
+        m = re.match(r"اكتشف\s+مصادر\s*[:：]?\s*(\S+)", msg, re.I)
+        if m:
+            res = discover_feeds(m.group(1))
+            if not res["feeds"]:
+                return f"لم أجد خلاصات RSS في {res['site']}. يمكنك إضافته كصفحة: أضف مصدر: الاسم، {res['site']}، page"
+            lines = [f"- {f['url']} ({f['items']} عنصر) — {f.get('title') or ''}" for f in res["feeds"]]
+            return f"خلاصات مكتشفة في {res['site']}:\n" + "\n".join(lines) + "\nلإضافة: أضف مصدر: الاسم، الرابط"
+        return None
+
+    def _handle_social(self, msg: str, lower: str) -> Optional[str]:
+        if lower in ("تواصل", "social", "قنوات التواصل"):
+            cfg = agent_settings.get_social()
+            return json.dumps({**{k: v for k, v in cfg.items() if k != "linkedin_token"}, "linkedin_token_set": bool(cfg["linkedin_token"])}, ensure_ascii=False, indent=2)
+        if lower in ("فعّل تواصل", "فعل تواصل", "enable social"):
+            agent_settings.set_social(social_enabled=True, public_fetch=True)
+            return "تم تفعيل مراقبة قنوات التواصل (الروابط العامة)."
+        if lower in ("عطّل تواصل", "عطل تواصل", "disable social"):
+            agent_settings.set_social(social_enabled=False, linkedin_enabled=False)
+            return "تم تعطيل مراقبة قنوات التواصل."
+        m = re.match(r"linkedin\s+token\s*[:：]?\s*(\S+)", msg, re.I)
+        if m:
+            check = verify_linkedin_token(m.group(1))
+            agent_settings.set_social(linkedin_token=m.group(1), linkedin_enabled=check["ok"])
+            return "LinkedIn: " + ("✅ متصل باسم " + str(check.get("name")) if check["ok"] else "⚠️ token مرفوض: " + str(check.get("error")))
+        m = re.match(r"روابط\s+(\d+)\s*[:：]\s*(.+)", msg, re.I | re.S)
+        if m:
+            links = [x.strip() for x in re.split(r"[,،\s]+", m.group(2)) if x.strip()]
+            return json.dumps(self.odoo.set_social_links(int(m.group(1)), links), ensure_ascii=False, indent=2)
         return None
 
     def _read_schedule(self) -> Dict[str, str]:

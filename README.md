@@ -37,12 +37,12 @@ git clone https://github.com/mahdi-m1/odoo-ai-agent-monitor.git
 cd odoo-ai-agent-monitor
 bash scripts/install.sh
 cp .env.example .env
-# ODOO_URL, ODOO_DB, ODOO_API_KEY, ODOO_PROTOCOL=json2
+# ODOO_URL=https://xxx.odoo.com  (بدون :8069)، ODOO_DB، ODOO_API_KEY، ODOO_PROTOCOL=json2
 ```
 
 ### مفتاح API
 
-Preferences → Account Security → New API Key → `ODOO_API_KEY`
+Preferences → Account Security → New API Key → `ODOO_API_KEY` — **بنطاق RPC** (مفتاح بنطاق MCP يعطي `Invalid apikey`).
 
 ### التشغيل
 
@@ -59,9 +59,34 @@ python -m agent.mcp_server
 مساعدة | قائمة | حالة
 أضف شركة: بنك البحرين الوطني، Bahrain
 أضف شخص: أحمد، بنك البحرين الوطني، مدير
-تقرير | راقب أخبار | راقب تعيينات
+تقرير | راقب أخبار | راقب تعيينات | راقب تشريعات | راقب تواصل
 عدّل 12: phone=+973...
+نموذج | نموذج sonnet | جهد high | محادثة جديدة
+مصادر | أضف مصدر: الاسم، الرابط، النوع | اكتشف مصادر: bna.bh | اختبر المصادر
+تواصل | فعّل تواصل | روابط 12: https://linkedin.com/company/...
 ```
+أي رسالة أخرى تُرسل إلى Claude CLI مع سياق الجهات المراقبة (جلسة مستمرة).
+
+## القنوات والمصادر (`/sources`)
+
+يبحث الوكيل في قنوات قابلة للتعديل من الواجهة أو الدردشة (تُحفظ في `data/sources.json`):
+
+| النوع | الوصف |
+|-------|--------|
+| `search` | قناة بحث تُستبدل فيها `{q}` باسم الجهة — Google News (عربي/English)، Bing News (الأدق) |
+| `rss` | خلاصة أخبار ثابتة تُفلتر بأسماء الجهات |
+| `page` | صفحة تُقرأ نصياً |
+| `legislation` | موقع تشريعات يُطابَق مع أسماء الجهات |
+
+**اكتشاف:** أدخل رابط موقع وسيجد الوكيل خلاصات RSS/Atom فيه. **فحص:** يختبر كل مصدر ويبيّن إن كان محجوباً (Cloudflare) أو فارغاً.
+
+## قنوات التواصل
+
+من `/sources`: تفعيل المراقبة، اختيار المنصات (LinkedIn, X, Instagram, Facebook, YouTube, TikTok)، LinkedIn API token (يُتحقق منه قبل التفعيل)، وربط حسابات كل جهة (تُحفظ في ملاحظة الجهة بـ Odoo كـ `[SOCIAL] رابط`).
+
+## حالة الوكيل والنماذج
+
+شريط الحالة في `/chat`: Odoo · إصدار Claude CLI · النموذج · عدد الاستدعاءات · التكلفة · آخر استدعاء. التبديل بين `opus / sonnet / haiku / fable` ومستوى الجهد من القائمة أو بأمر `نموذج`. الإعدادات في `data/agent_settings.json`.
 
 ## MCP
 

@@ -13,6 +13,7 @@
     <nav>
       <a href="/">الرئيسية</a>
       <a href="/chat">الدردشة مع الوكيل</a>
+      <a href="/sources">المصادر والقنوات</a>
       <a href="/dashboard">لوحة التحكم</a>
     </nav>
   </header>
@@ -21,7 +22,9 @@
       <h2>حالة النظام</h2>
       <ul class="status">
         <li>Odoo: {% if health.ok %}<span class="ok">متصل</span> ({{ health.protocol }}){% else %}<span class="bad">غير متصل</span>{% endif %}</li>
-        <li>Claude CLI: {% if claude_ok %}<span class="ok">متاح</span>{% else %}<span class="bad">غير مثبت</span>{% endif %}</li>
+        <li>Claude CLI: {% if claude_ok %}<span class="ok">متاح</span> — {{ claude.version }} · النموذج: {{ claude.model }}{% else %}<span class="bad">غير مثبت</span>{% endif %}</li>
+        <li>قنوات البحث: <a href="/sources">{{ sources_enabled }} مفعّلة من {{ sources_total }}</a></li>
+        <li>قنوات التواصل: {% if social.social_enabled or social.linkedin_enabled %}<span class="ok">مفعّلة</span>{% else %}<span class="bad">معطّلة</span>{% endif %} — <a href="/sources">إعداد</a></li>
       </ul>
     </section>
     <section class="card">
@@ -49,20 +52,29 @@
       <pre id="person-result" class="result"></pre>
     </section>
     <section class="card full">
-      <h2>الجهات تحت المراقبة ({{ partners|length }})</h2>
+      <h2>الجهات تحت المراقبة ({{ tree.total_partners or 0 }})</h2>
       <table>
-        <thead><tr><th>ID</th><th>النوع</th><th>الاسم</th><th>البريد</th></tr></thead>
+        <thead><tr><th>ID</th><th>النوع</th><th>الاسم</th><th>المنصب / الموقع</th><th>البريد</th><th>الجاهزية</th></tr></thead>
         <tbody>
-          {% for p in partners %}
+          {% for b in tree.companies %}
           <tr>
-            <td>{{ p.id }}</td>
-            <td>{% if p.is_company %}شركة{% else %}شخص{% endif %}</td>
-            <td>{{ p.name }}</td>
-            <td>{{ p.email or '—' }}</td>
+            <td>{{ b.company.id }}</td><td>شركة</td><td><b>{{ b.company.name }}</b></td>
+            <td>{{ b.company.website or '—' }}</td><td>{{ b.company.email or '—' }}</td>
+            <td>{% if b.monitoring_ready %}<span class="ok">جاهزة ({{ b.people_count }})</span>{% else %}<span class="bad">بدون شخصيات</span>{% endif %}</td>
           </tr>
-          {% else %}
-          <tr><td colspan="4">لا توجد جهات بعد.</td></tr>
+          {% for pe in b.people %}
+          <tr>
+            <td>{{ pe.id }}</td><td>شخص</td><td>&nbsp;&nbsp;└ {{ pe.name }}</td>
+            <td>{{ pe.function or '—' }}</td><td>{{ pe.email or '—' }}</td><td></td>
+          </tr>
           {% endfor %}
+          {% endfor %}
+          {% for pe in tree.orphan_people %}
+          <tr><td>{{ pe.id }}</td><td>شخص</td><td>{{ pe.name }}</td><td>{{ pe.function or '—' }}</td><td>{{ pe.email or '—' }}</td><td class="muted">بدون شركة</td></tr>
+          {% endfor %}
+          {% if not tree.companies and not tree.orphan_people %}
+          <tr><td colspan="6">لا توجد جهات بعد.</td></tr>
+          {% endif %}
         </tbody>
       </table>
     </section>

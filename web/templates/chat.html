@@ -12,35 +12,109 @@
     <nav>
       <a href="/">الرئيسية</a>
       <a href="/chat">الدردشة</a>
+      <a href="/sources">المصادر والقنوات</a>
       <a href="/dashboard">لوحة التحكم</a>
     </nav>
   </header>
   <main class="chat-layout">
+    <div class="agent-bar" id="agent-bar">
+      <span class="pill" id="pill-odoo">Odoo: …</span>
+      <span class="pill" id="pill-claude">Claude: …</span>
+      <span class="pill" id="pill-sources">القنوات: …</span>
+      <span class="pill" id="pill-social">التواصل: …</span>
+      <label class="inline">النموذج
+        <select id="model-select">
+          <option value="">الافتراضي (Claude CLI)</option>
+          {% for m in models %}<option value="{{ m.id }}">{{ m.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="inline">الجهد
+        <select id="effort-select">
+          <option value="">افتراضي</option>
+          {% for e in efforts %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="button" class="ghost" id="btn-reset">محادثة جديدة</button>
+      <button type="button" class="ghost" id="btn-status">تحديث الحالة</button>
+    </div>
     <div id="messages" class="messages"></div>
     <form id="chat-form" class="chat-input">
-      <input id="chat-message" type="text" placeholder="اكتب أمراً… قائمة | أضف شركة: ... | تقرير" autocomplete="off" required />
-      <button type="submit">إرسال</button>
+      <input id="chat-message" type="text" placeholder="اكتب أمراً أو سؤالاً… (مساعدة | قائمة | مصادر | نموذج sonnet)" autocomplete="off" required />
+      <button type="submit" id="btn-send">إرسال</button>
     </form>
-    <p class="hint">مساعدة · قائمة · حالة · أضف شركة · تقرير أسبوعي</p>
+    <p class="hint" id="last-call">مساعدة · قائمة · حالة · مصادر · نموذج · أضف شركة · تقرير أسبوعي</p>
   </main>
   <script>
     const box = document.getElementById('messages');
     const form = document.getElementById('chat-form');
     const input = document.getElementById('chat-message');
+    const sendBtn = document.getElementById('btn-send');
+    const modelSel = document.getElementById('model-select');
+    const effortSel = document.getElementById('effort-select');
+    const lastCall = document.getElementById('last-call');
+
     function addBubble(text, who) {
       const div = document.createElement('div');
       div.className = 'bubble ' + who;
       div.textContent = text;
       box.appendChild(div);
       box.scrollTop = box.scrollHeight;
+      return div;
     }
+    function pill(id, text, ok) {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.className = 'pill ' + (ok === true ? 'ok-pill' : ok === false ? 'bad-pill' : '');
+    }
+    async function refreshStatus() {
+      try {
+        const s = await (await fetch('/api/agent/status')).json();
+        pill('pill-odoo', 'Odoo: ' + (s.odoo.ok ? 'متصل (uid ' + (s.odoo.uid ?? '?') + ')' : 'غير متصل'), !!s.odoo.ok);
+        const c = s.claude;
+        pill('pill-claude', 'Claude: ' + (c.available ? (c.version || 'متاح') + ' · ' + c.model + ' · ' + c.calls + ' استدعاء · $' + c.total_cost_usd : 'غير متاح'), c.available);
+        pill('pill-sources', 'القنوات: ' + s.sources.enabled + '/' + s.sources.total + ' مفعّلة', s.sources.enabled > 0);
+        pill('pill-social', 'التواصل: ' + (s.social.social_enabled || s.social.linkedin_enabled ? 'مفعّل' : 'معطّل'), s.social.social_enabled || s.social.linkedin_enabled ? true : null);
+        const cur = (c.model || '').replace(/\(.*\)/, '').trim();
+        modelSel.value = [...modelSel.options].some(o => o.value === cur) ? cur : '';
+        effortSel.value = c.effort === 'default' ? '' : c.effort;
+        if (c.last && c.last.at) {
+          lastCall.textContent = 'آخر استدعاء ' + c.last.at + ' — ' + (c.last.ok ? '✅ ' + (c.last.model_used || '') + ' · ' + (c.last.duration_ms || 0) + 'ms · $' + c.last.cost_usd : '⚠️ ' + c.last.error);
+        }
+      } catch (e) { pill('pill-claude', 'الحالة: تعذر القراءة', false); }
+    }
+    async function loadHistory() {
+      try {
+        const h = await (await fetch('/api/chat/history')).json();
+        (h.history || []).forEach(x => { addBubble(x.user, 'user'); addBubble(x.agent, 'bot'); });
+      } catch (e) {}
+    }
+    modelSel.addEventListener('change', async () => {
+      const r = await fetch('/api/agent/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: modelSel.value, effort: effortSel.value }) });
+      const d = await r.json();
+      addBubble(d.error ? 'خطأ: ' + d.error : 'تم تبديل النموذج إلى: ' + (d.model || 'الافتراضي'), 'bot');
+      refreshStatus();
+    });
+    effortSel.addEventListener('change', async () => {
+      const r = await fetch('/api/agent/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: modelSel.value, effort: effortSel.value }) });
+      const d = await r.json();
+      addBubble(d.error ? 'خطأ: ' + d.error : 'مستوى الجهد: ' + (d.effort || 'افتراضي'), 'bot');
+    });
+    document.getElementById('btn-reset').addEventListener('click', async () => {
+      await fetch('/api/chat/reset', { method: 'POST' });
+      box.innerHTML = '';
+      addBubble('بدأت محادثة جديدة.', 'bot');
+      refreshStatus();
+    });
+    document.getElementById('btn-status').addEventListener('click', refreshStatus);
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const msg = input.value.trim();
       if (!msg) return;
       addBubble(msg, 'user');
       input.value = '';
-      addBubble('…', 'bot pending');
+      sendBtn.disabled = true;
+      const pending = addBubble('… يفكر', 'bot pending');
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
@@ -48,13 +122,19 @@
           body: JSON.stringify({ message: msg }),
         });
         const data = await res.json();
-        box.querySelector('.pending')?.remove();
+        pending.remove();
         addBubble(data.reply || JSON.stringify(data), 'bot');
       } catch (err) {
-        box.querySelector('.pending')?.remove();
+        pending.remove();
         addBubble('خطأ: ' + err, 'bot');
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+        refreshStatus();
       }
     });
+    loadHistory().then(refreshStatus);
+    setInterval(refreshStatus, 30000);
   </script>
 </body>
 </html>
