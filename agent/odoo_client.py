@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import xmlrpc.client
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Union
 
 import httpx
@@ -174,8 +175,27 @@ class OdooClient:
         rows = self.search_partners(domain=domain, limit=5)
         return rows[0] if rows else None
 
-    def create_activity(self, res_model: str, res_id: int, summary: str, note: str = "", activity_type_id: int = 1) -> int:
-        vals = {"res_model": res_model, "res_id": res_id, "summary": summary, "note": note, "activity_type_id": activity_type_id}
+    def _model_id(self, model: str) -> Optional[int]:
+        cache = getattr(self, "_model_id_cache", None)
+        if cache is None:
+            cache = self._model_id_cache = {}
+        if model not in cache:
+            try:
+                rows = self._json2("ir.model", "search_read", {"domain": [["model", "=", model]], "fields": ["id"], "limit": 1})
+                cache[model] = int(rows[0]["id"]) if rows else None
+            except Exception:
+                cache[model] = None
+        return cache[model]
+
+    def create_activity(self, res_model: str, res_id: int, summary: str, note: str = "",
+                         activity_type_id: int = 4, days_ahead: int = 0) -> int:
+        # Odoo 19/20 mail.activity requires res_model_id and date_deadline.
+        deadline = (date.today() + timedelta(days=days_ahead)).isoformat()
+        vals = {"res_model": res_model, "res_id": int(res_id), "summary": summary[:250], "note": note,
+                "activity_type_id": activity_type_id, "date_deadline": deadline}
+        model_id = self._model_id(res_model) if self.protocol == "json2" else None
+        if model_id:
+            vals["res_model_id"] = model_id
         try:
             if self.protocol == "json2":
                 res = self._json2("mail.activity", "create", {"vals_list": [vals]})

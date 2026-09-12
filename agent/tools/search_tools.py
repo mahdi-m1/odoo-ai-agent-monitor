@@ -6,7 +6,10 @@ LinkedIn/social are structured for extension (official APIs or manual sources).
 from __future__ import annotations
 
 import logging
+import os
 import re
+import threading
+import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote, urljoin, urlparse
 
@@ -44,6 +47,20 @@ def is_challenge_page(text: str) -> bool:
 
 def fill_query(template: str, query: str) -> str:
     return template.replace("{q}", quote(query))
+
+
+# Search aggregators (Google/Bing News) return empty results on rapid bursts. Pace requests to them.
+_SEARCH_MIN_INTERVAL = float(os.getenv("SEARCH_MIN_INTERVAL", "1.2"))
+_pace_lock = threading.Lock()
+_last_search_at = [0.0]
+
+
+def _pace_search() -> None:
+    with _pace_lock:
+        gap = time.time() - _last_search_at[0]
+        if gap < _SEARCH_MIN_INTERVAL:
+            time.sleep(_SEARCH_MIN_INTERVAL - gap)
+        _last_search_at[0] = time.time()
 
 
 def entity_query(partner: Dict[str, Any]) -> str:
@@ -120,7 +137,18 @@ class SearchTools:
 
         # Search channels return results already scoped to the entity.
         for feed in (search_feeds if search_feeds is not None else DEFAULT_SEARCH_FEEDS):
-            for item in self.fetch_rss(fill_query(feed["url"], query), limit=limit_per_feed):
+            _pace_search()
+            url = fill_query(feed["url"], query)
+            parsed = self.fetch_feed(url)
+            if not parsed["entries"] and parsed["error"] is None:  # transient empty (rate-limit) → one retry
+                time.sleep(_SEARCH_MIN_INTERVAL)
+                parsed = self.fetch_feed(url)
+            items = []
+            for entry in parsed["entries"][:limit_per_feed]:
+                items.append({"title": getattr(entry, "title", ""), "link": getattr(entry, "link", ""),
+                              "summary": BeautifulSoup(getattr(entry, "summary", "") or "", "lxml").get_text(" ", strip=True)[:500],
+                              "published": getattr(entry, "published", ""), "source": url})
+            for item in items:
                 if item["link"] in seen_links:
                     continue
                 seen_links.add(item["link"])
