@@ -2,11 +2,11 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>دردشة الوكيل</title>
-  <meta name="theme-color" content="#efe4cc" media="(prefers-color-scheme: light)" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#e2cfa2" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#241d17" media="(prefers-color-scheme: dark)" />
   <meta name="color-scheme" content="light dark" />
+  <title>الدردشة مع الوكيل</title>
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
@@ -21,151 +21,210 @@
       <a href="/dashboard">لوحة التحكم</a>
     </nav>
   </header>
-  <main class="chat-layout">
-    <div class="agent-bar" id="agent-bar">
-      <span class="pill" id="pill-odoo">Odoo: …</span>
-      <span class="pill" id="pill-claude">Claude: …</span>
-      <span class="pill" id="pill-sources">القنوات: …</span>
-      <span class="pill" id="pill-social">التواصل: …</span>
-      <label class="inline">النموذج
-        <select id="model-select">
-          <option value="">الافتراضي (Claude CLI)</option>
-          {% for m in models %}<option value="{{ m.id }}">{{ m.label }}</option>{% endfor %}
-        </select>
-      </label>
-      <label class="inline">الجهد
-        <select id="effort-select">
-          <option value="">افتراضي</option>
-          {% for e in efforts %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
-        </select>
-      </label>
-      <button type="button" class="ghost" id="btn-reset">محادثة جديدة</button>
-      <button type="button" class="ghost" id="btn-status">تحديث الحالة</button>
+
+  <main class="chat-app">
+    <div class="chat-toolbar">
+      <div class="chip-row" id="chips">
+        <span class="chip" id="chip-odoo"><span class="dot"></span>Odoo</span>
+        <span class="chip" id="chip-claude"><span class="dot"></span>Claude</span>
+        <span class="chip" id="chip-model"><span class="dot"></span>—</span>
+      </div>
+      <span class="spacer"></span>
+      <button type="button" class="icon-btn" id="btn-settings" title="الإعدادات" aria-label="الإعدادات">⚙️</button>
+      <button type="button" class="icon-btn" id="btn-reset" title="محادثة جديدة" aria-label="محادثة جديدة">✕</button>
     </div>
+
+    <div class="settings-drawer" id="settings">
+      <div class="settings-inner">
+        <label class="field"><span>النموذج</span>
+          <select id="model-select">
+            <option value="">الافتراضي (Claude CLI)</option>
+            {% for m in models %}<option value="{{ m.id }}">{{ m.label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="field"><span>مستوى الجهد</span>
+          <select id="effort-select">
+            <option value="">افتراضي</option>
+            {% for e in efforts %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+          </select>
+        </label>
+        <div class="settings-actions">
+          <button type="button" class="ghost" id="btn-status">تحديث الحالة</button>
+          <button type="button" class="ghost" id="btn-reset2">محادثة جديدة</button>
+        </div>
+        <p class="muted" id="last-call" style="margin:0"></p>
+      </div>
+    </div>
+
     <div id="tasks-panel"></div>
-    <div id="messages" class="messages"></div>
-    <form id="chat-form" class="chat-input">
-      <input id="chat-message" type="text" placeholder="اكتب أمراً أو سؤالاً… (مساعدة | قائمة | مصادر | نموذج sonnet)" autocomplete="off" required />
-      <button type="submit" id="btn-send">إرسال</button>
+
+    <div class="chat-scroll" id="scroll"></div>
+
+    <div class="quick-row" id="quick">
+      <button class="quick" data-q="قائمة">📋 قائمة المراقبة</button>
+      <button class="quick" data-q="ابحث واجلب أكبر 10 شركات في البحرين ومديريها وأدرجهم">🏢 أكبر 10 شركات + مديريها</button>
+      <button class="quick" data-q="راقب أخبار">📰 راقب الأخبار</button>
+      <button class="quick" data-q="تقرير أسبوعي">📊 تقرير أسبوعي</button>
+      <button class="quick" data-q="حالة">⚙️ الحالة</button>
+      <button class="quick" data-q="مساعدة">❓ مساعدة</button>
+    </div>
+
+    <form class="composer" id="composer">
+      <textarea id="input" rows="1" placeholder="اكتب أمراً أو سؤالاً…  (Enter للإرسال · Shift+Enter لسطر جديد)" autocomplete="off"></textarea>
+      <button type="submit" id="send">إرسال</button>
     </form>
-    <p class="hint" id="last-call">مساعدة · قائمة · حالة · مصادر · نموذج · أضف شركة · تقرير أسبوعي</p>
   </main>
+
   <script>
-    const box = document.getElementById('messages');
-    const form = document.getElementById('chat-form');
-    const input = document.getElementById('chat-message');
-    const sendBtn = document.getElementById('btn-send');
+    const scroll = document.getElementById('scroll');
+    const form = document.getElementById('composer');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
     const modelSel = document.getElementById('model-select');
     const effortSel = document.getElementById('effort-select');
     const lastCall = document.getElementById('last-call');
 
-    function addBubble(text, who) {
+    function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function mdToHtml(text) {
+      let t = esc(text);
+      t = t.replace(/```([\s\S]*?)```/g, (m, c) => '<pre>' + c.trim() + '</pre>');
+      t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+      t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      t = t.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+      const lines = t.split('\n'); let html = '', inUl = false;
+      for (let ln of lines) {
+        if (/^\s*[-•]\s+/.test(ln)) {
+          if (!inUl) { html += '<ul>'; inUl = true; }
+          html += '<li>' + ln.replace(/^\s*[-•]\s+/, '') + '</li>';
+        } else {
+          if (inUl) { html += '</ul>'; inUl = false; }
+          if (ln.trim()) html += '<p>' + ln + '</p>';
+        }
+      }
+      if (inUl) html += '</ul>';
+      return html || '<p></p>';
+    }
+
+    function addMsg(text, who, opts) {
+      opts = opts || {};
       const div = document.createElement('div');
-      div.className = 'bubble ' + who;
-      div.textContent = text;
-      box.appendChild(div);
-      box.scrollTop = box.scrollHeight;
+      div.className = 'msg ' + who + (opts.think ? ' think' : '');
+      if (who === 'bot' && !opts.think) { const md = document.createElement('div'); md.className = 'md'; md.innerHTML = mdToHtml(text); div.appendChild(md); }
+      else div.textContent = text;
+      scroll.appendChild(div);
+      scroll.scrollTop = scroll.scrollHeight;
       return div;
     }
-    function pill(id, text, ok) {
-      const el = document.getElementById(id);
-      el.textContent = text;
-      el.className = 'pill ' + (ok === true ? 'ok-pill' : ok === false ? 'bad-pill' : '');
+
+    function addResultCard(result) {
+      const div = document.createElement('div');
+      div.className = 'res-card';
+      let html = '<div class="res-title">✅ ' + esc(result.summary || 'اكتملت المهمة') + '</div><div class="res-list">';
+      (result.results || []).forEach(x => {
+        const ico = x.status.includes('أُضيفت') ? '✅' : (x.status.includes('موجودة') ? '↺' : '⚠️');
+        const meta = [x.people != null ? x.people + ' مدير' : '', x.sector || ''].filter(Boolean).join(' · ');
+        html += '<div class="res-item"><span class="ico">' + ico + '</span><span class="nm">' + esc(x.company) + '</span>' + (meta ? '<span class="meta">' + esc(meta) + '</span>' : '') + '</div>';
+      });
+      html += '</div>';
+      div.innerHTML = html;
+      scroll.appendChild(div);
+      scroll.scrollTop = scroll.scrollHeight;
     }
+
+    function chip(id, label, state) {
+      const el = document.getElementById(id);
+      el.className = 'chip' + (state === true ? ' on' : state === false ? ' off' : '');
+      el.innerHTML = '<span class="dot"></span>' + label;
+    }
+
     async function refreshStatus() {
       try {
         const s = await (await fetch('/api/agent/status')).json();
-        pill('pill-odoo', 'Odoo: ' + (s.odoo.ok ? 'متصل (uid ' + (s.odoo.uid ?? '?') + ')' : 'غير متصل'), !!s.odoo.ok);
+        chip('chip-odoo', 'Odoo ' + (s.odoo.ok ? '✓' : '✗'), !!s.odoo.ok);
         const c = s.claude;
-        pill('pill-claude', 'Claude: ' + (c.available ? (c.version || 'متاح') + ' · ' + c.model + ' · ' + c.calls + ' استدعاء · $' + c.total_cost_usd : 'غير متاح'), c.available);
-        pill('pill-sources', 'القنوات: ' + s.sources.enabled + '/' + s.sources.total + ' مفعّلة', s.sources.enabled > 0);
-        pill('pill-social', 'التواصل: ' + (s.social.social_enabled || s.social.linkedin_enabled ? 'مفعّل' : 'معطّل'), s.social.social_enabled || s.social.linkedin_enabled ? true : null);
+        chip('chip-claude', 'Claude ' + (c.available ? c.calls + ' · $' + c.total_cost_usd : '✗'), c.available);
+        chip('chip-model', c.model || '—', null);
         const cur = (c.model || '').replace(/\(.*\)/, '').trim();
         modelSel.value = [...modelSel.options].some(o => o.value === cur) ? cur : '';
-        effortSel.value = c.effort === 'default' ? '' : c.effort;
-        if (c.last && c.last.at) {
-          lastCall.textContent = 'آخر استدعاء ' + c.last.at + ' — ' + (c.last.ok ? '✅ ' + (c.last.model_used || '') + ' · ' + (c.last.duration_ms || 0) + 'ms · $' + c.last.cost_usd : '⚠️ ' + c.last.error);
-        }
-      } catch (e) { pill('pill-claude', 'الحالة: تعذر القراءة', false); }
+        effortSel.value = (c.effort === 'default' || !c.effort) ? '' : c.effort;
+        if (c.last && c.last.at) lastCall.textContent = 'آخر استدعاء: ' + c.last.at + (c.last.ok ? ' · ' + (c.last.model_used || '') + ' · ' + (c.last.duration_ms || 0) + 'ms · $' + c.last.cost_usd : ' · ⚠️ ' + c.last.error);
+      } catch (e) { chip('chip-claude', 'تعذّر الاتصال', false); }
     }
+
     async function loadHistory() {
       try {
         const h = await (await fetch('/api/chat/history')).json();
-        (h.history || []).forEach(x => { addBubble(x.user, 'user'); addBubble(x.agent, 'bot'); });
+        (h.history || []).forEach(x => { addMsg(x.user, 'me'); addMsg(x.agent, 'bot'); });
       } catch (e) {}
     }
-    modelSel.addEventListener('change', async () => {
-      const r = await fetch('/api/agent/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: modelSel.value, effort: effortSel.value }) });
-      const d = await r.json();
-      addBubble(d.error ? 'خطأ: ' + d.error : 'تم تبديل النموذج إلى: ' + (d.model || 'الافتراضي'), 'bot');
-      refreshStatus();
-    });
-    effortSel.addEventListener('change', async () => {
-      const r = await fetch('/api/agent/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: modelSel.value, effort: effortSel.value }) });
-      const d = await r.json();
-      addBubble(d.error ? 'خطأ: ' + d.error : 'مستوى الجهد: ' + (d.effort || 'افتراضي'), 'bot');
-    });
-    document.getElementById('btn-reset').addEventListener('click', async () => {
-      await fetch('/api/chat/reset', { method: 'POST' });
-      box.innerHTML = '';
-      addBubble('بدأت محادثة جديدة.', 'bot');
-      refreshStatus();
-    });
+
+    document.getElementById('btn-settings').addEventListener('click', () => document.getElementById('settings').classList.toggle('open'));
     document.getElementById('btn-status').addEventListener('click', refreshStatus);
+    async function saveModel() {
+      const d = await (await fetch('/api/agent/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: modelSel.value, effort: effortSel.value }) })).json();
+      addMsg(d.error ? 'خطأ: ' + d.error : 'تم الضبط · النموذج: ' + (d.model || 'الافتراضي') + (d.effort ? ' · الجهد: ' + d.effort : ''), 'bot');
+      refreshStatus();
+    }
+    modelSel.addEventListener('change', saveModel);
+    effortSel.addEventListener('change', saveModel);
+    async function resetChat() {
+      await fetch('/api/chat/reset', { method: 'POST' });
+      scroll.innerHTML = ''; addMsg('بدأت محادثة جديدة.', 'bot'); refreshStatus();
+    }
+    document.getElementById('btn-reset').addEventListener('click', resetChat);
+    document.getElementById('btn-reset2').addEventListener('click', resetChat);
+
+    document.getElementById('quick').addEventListener('click', (e) => {
+      const b = e.target.closest('.quick'); if (!b) return;
+      input.value = b.dataset.q; input.focus(); autoGrow();
+    });
+
+    function autoGrow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px'; }
+    input.addEventListener('input', autoGrow);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const msg = input.value.trim();
       if (!msg) return;
-      addBubble(msg, 'user');
-      input.value = '';
+      addMsg(msg, 'me');
+      input.value = ''; autoGrow();
       sendBtn.disabled = true;
-      const pending = addBubble('… يفكر', 'bot pending');
+      const pending = addMsg('… يفكّر', 'bot', { think: true });
       try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: msg }),
-        });
+        const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg }) });
         const data = await res.json();
         pending.remove();
-        addBubble(data.reply || JSON.stringify(data), 'bot');
-        if (data.task_id) pollTasks();  // show progress immediately
+        addMsg(data.reply || JSON.stringify(data), 'bot');
+        if (data.task_id) pollTasks();
       } catch (err) {
         pending.remove();
-        addBubble('خطأ: ' + err, 'bot');
+        addMsg('تعذّر الاتصال بالخادم. حاول مجدداً.', 'bot');
       } finally {
-        sendBtn.disabled = false;
-        input.focus();
-        refreshStatus();
+        sendBtn.disabled = false; input.focus(); refreshStatus();
       }
     });
-    // Persistent tasks panel — polls all recent tasks, so progress shows even after a page reload.
+
     const shownDone = new Set();
     function renderTasks(tasks) {
       const panel = document.getElementById('tasks-panel');
-      const active = (tasks || []).filter(t => t.status === 'running' || (Date.now()/1000 - (t.finished || t.started)) < 45);
+      const active = (tasks || []).filter(t => t.status === 'running' || (Date.now() / 1000 - (t.finished || t.started)) < 45);
       panel.innerHTML = '';
       active.forEach(t => {
         const pct = Math.round((t.progress || 0) * 100);
-        const stateIcon = t.status === 'running' ? '⏳' : t.status === 'done' ? '✅' : '⚠️';
+        const ico = t.status === 'running' ? '⏳' : t.status === 'done' ? '✅' : '⚠️';
         const div = document.createElement('div');
         div.className = 'task-card' + (t.status === 'error' ? ' err' : '');
-        div.innerHTML =
-          `<div class="task-head">${stateIcon} ${t.title} — ${t.status === 'running' ? pct + '%' : t.status}</div>` +
-          `<div class="task-bar"><div class="task-fill${t.status === 'error' ? ' bad-fill' : ''}" style="width:${pct}%"></div></div>` +
-          `<div class="task-log">${(t.last_msg || '').replace(/</g,'&lt;')}</div>`;
+        div.innerHTML = '<div class="task-head">' + ico + ' ' + esc(t.title) + ' — ' + (t.status === 'running' ? pct + '%' : t.status) + '</div>' +
+          '<div class="task-bar"><div class="task-fill' + (t.status === 'error' ? ' bad-fill' : '') + '" style="width:' + pct + '%"></div></div>' +
+          '<div class="task-log">' + esc(t.last_msg || '') + '</div>';
         panel.appendChild(div);
-        // When a task finishes, drop its result into the chat once.
         if ((t.status === 'done' || t.status === 'error') && !shownDone.has(t.id)) {
           shownDone.add(t.id);
           fetch('/api/chat/task/' + t.id).then(r => r.json()).then(full => {
             const r = full.result || {};
-            let summary = r.summary || full.error || full.status;
-            if (r.results && r.results.length) {
-              summary += '\n\n' + r.results.map(x => (x.status.includes('أُضيفت') ? '✅' : x.status.includes('موجودة') ? '↺' : '⚠️') + ' ' + x.company + (x.people ? ' (' + x.people + ' مدير)' : '') + (x.sector ? ' — ' + x.sector : '')).join('\n');
-            }
-            addBubble(summary, 'bot');
+            if (r.results && r.results.length) addResultCard(r);
+            else addMsg(r.summary || full.error || full.status, 'bot');
             refreshStatus();
           });
         }
@@ -175,19 +234,21 @@
     async function pollTasks() {
       try {
         const d = await (await fetch('/api/chat/tasks')).json();
-        const withMsg = (d.tasks || []).map(t => ({ ...t }));
-        // fetch last log line for running tasks
-        await Promise.all(withMsg.filter(t => t.status === 'running').map(async t => {
-          try { const f = await (await fetch('/api/chat/task/' + t.id)).json(); t.last_msg = (f.log && f.log.length) ? f.log[f.log.length-1].msg : ''; } catch(e){}
+        const tasks = (d.tasks || []).map(t => ({ ...t }));
+        await Promise.all(tasks.filter(t => t.status === 'running').map(async t => {
+          try { const f = await (await fetch('/api/chat/task/' + t.id)).json(); t.last_msg = (f.log && f.log.length) ? f.log[f.log.length - 1].msg : ''; } catch (e) {}
         }));
-        renderTasks(withMsg);
-        const anyRunning = withMsg.some(t => t.status === 'running');
-        if (anyRunning && !tasksTimer) tasksTimer = setInterval(pollTasks, 3000);
-        if (!anyRunning && tasksTimer) { clearInterval(tasksTimer); tasksTimer = null; }
+        renderTasks(tasks);
+        const running = tasks.some(t => t.status === 'running');
+        if (running && !tasksTimer) tasksTimer = setInterval(pollTasks, 3000);
+        if (!running && tasksTimer) { clearInterval(tasksTimer); tasksTimer = null; }
       } catch (e) {}
     }
+
+    autoGrow();
+    loadHistory().then(refreshStatus);
     pollTasks();
-    loadHistory().then(refreshStatus);    setInterval(refreshStatus, 30000);
+    setInterval(refreshStatus, 30000);
   </script>
 </body>
 </html>
