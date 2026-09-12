@@ -53,10 +53,31 @@ COMPANY_SCHEMA_HINT = (
 )
 
 
+def _research_batch(claude, request: str, need: int, exclude: List[str], model: str) -> List[Dict[str, Any]]:
+    """Ask Claude for `need` companies (with executives) not already in `exclude`, as JSON."""
+    excl = ""
+    if exclude:
+        excl = "\nاستثنِ هذه الشركات التي سبق ذكرها (لا تكرّرها): " + "، ".join(exclude[-80:]) + "\n"
+    prompt = (
+        f"طلب المستخدم: {request}\n"
+        f"ابحث في الإنترنت وأعطِ الآن {need} شركة إضافية مطابقة للطلب (مرتّبة حسب الحجم/الأهمية).{excl}"
+        f"لكل شركة: الاسم بالعربية والإنجليزية، القطاع، الموقع الإلكتروني إن عُرف، وأبرز المديرين "
+        f"التنفيذيين الحاليين (رئيس تنفيذي/رئيس/رئيس مجلس إدارة) باسم ومنصب لكل شخص.\n"
+        f"تحقّق من المناصب من مصادر حديثة ولا تختلق أسماء؛ إن لم تتأكد من مدير شركة اترك قائمتها فارغة.\n"
+        f"أرجع JSON فقط بهذا الشكل تماماً بلا أي نص آخر:\n{COMPANY_SCHEMA_HINT}"
+    )
+    raw = claude.complete(prompt, model=model or None, keep_session=False,
+                          allowed_tools=["WebSearch", "WebFetch"], timeout=600)
+    data = _extract_json(raw)
+    if not data or not isinstance(data.get("companies"), list):
+        return []
+    return data["companies"]
+
+
 def research_and_add_companies(claude, odoo, memory, query: str, count: int = 10,
                                model: str = "", progress: Optional[Progress] = None) -> Dict[str, Any]:
-    """Research companies + their executives via Claude, then insert each into Odoo as a monitored
-    company with linked people. Skips companies already present (by name). Returns a summary."""
+    """Research companies + their executives via Claude (batched for large counts), then insert each
+    into Odoo as a monitored company with linked people. Skips companies already present (by name)."""
     def emit(msg: str, pct: Optional[float] = None):
         logger.info("action: %s", msg)
         if progress:
@@ -65,30 +86,45 @@ def research_and_add_companies(claude, odoo, memory, query: str, count: int = 10
     if not claude.available():
         return {"ok": False, "error": "Claude CLI غير متاح — لا يمكن تنفيذ البحث."}
 
-    emit(f"جاري البحث عن {count} شركة (مع تحقق من الإنترنت)…", 0.1)
-    prompt = (
-        f"مهمتك: ابحث في الإنترنت واذكر {count} من {query}.\n"
-        f"لكل شركة اذكر: الاسم بالعربية والإنجليزية، القطاع، الموقع الإلكتروني إن عُرف، "
-        f"وأبرز المديرين التنفيذيين الحاليين (الرئيس التنفيذي، الرئيس، رئيس مجلس الإدارة) باسم ومنصب لكل شخص.\n"
-        f"تحقّق من المناصب من مصادر حديثة قدر الإمكان ولا تختلق أسماء. إن لم تتأكد من مدير شركة، اتركها بقائمة أشخاص فارغة.\n"
-        f"أرجع JSON فقط بهذا الشكل تماماً بلا أي نص قبله أو بعده:\n{COMPANY_SCHEMA_HINT}"
-    )
+    # 1) Research (batched so large JSON responses don't get truncated)
+    batch_size = 20
+    collected: List[Dict[str, Any]] = []
+    seen_names: List[str] = []
+    rounds = 0
+    max_rounds = (count + batch_size - 1) // batch_size + 2
+    while len(collected) < count and rounds < max_rounds:
+        rounds += 1
+        need = min(batch_size, count - len(collected))
+        emit(f"بحث (دفعة {rounds}): جلب {need} شركة… (المجموع حتى الآن {len(collected)}/{count})",
+             0.05 + 0.5 * len(collected) / max(count, 1))
+        try:
+            batch = _research_batch(claude, query, need, seen_names, model)
+        except Exception as e:
+            if not collected:
+                return {"ok": False, "error": f"فشل استدعاء Claude: {e}"}
+            emit(f"توقّف البحث بعد خطأ: {str(e)[:80]}", None)
+            break
+        fresh = 0
+        for co in batch:
+            nm = (co.get("name_en") or co.get("name_ar") or "").strip()
+            if nm and nm.lower() not in {n.lower() for n in seen_names}:
+                collected.append(co)
+                seen_names.append(nm)
+                if co.get("name_ar"):
+                    seen_names.append(co["name_ar"])
+                fresh += 1
+        if fresh == 0:  # Claude has no more distinct companies to give
+            emit("لا مزيد من الشركات المتاحة من البحث.", None)
+            break
+    companies = collected[:count]
+    if not companies:
+        return {"ok": False, "error": "تعذّر جلب أي شركة من البحث."}
+
+    emit(f"تم جمع {len(companies)} شركة — جاري الإدراج في Odoo…", 0.6)
+
+    # 2) Insert (skip duplicates already in Odoo)
     try:
-        raw = claude.complete(prompt, model=model or None, keep_session=False,
-                              allowed_tools=["WebSearch", "WebFetch"], timeout=600)
-    except Exception as e:
-        return {"ok": False, "error": f"فشل استدعاء Claude: {e}"}
-
-    data = _extract_json(raw)
-    if not data or not isinstance(data.get("companies"), list):
-        return {"ok": False, "error": "تعذّر تحليل نتيجة البحث كـ JSON.", "raw": raw[:800]}
-
-    companies = data["companies"][:count]
-    emit(f"تم العثور على {len(companies)} شركة — جاري الإدراج في Odoo…", 0.4)
-
-    # existing monitored companies (avoid duplicates)
-    try:
-        existing = {(p.get("name") or "").strip().lower() for p in odoo.list_monitored(limit=300)}
+        existing = {(p.get("name") or "").strip().lower() for p in odoo.list_monitored(limit=400)}
     except Exception:
         existing = set()
 
@@ -103,7 +139,7 @@ def research_and_add_companies(claude, odoo, memory, query: str, count: int = 10
         if name.lower() in existing or (name_ar and name_ar.lower() in existing):
             skipped += 1
             results.append({"company": display, "status": "موجودة مسبقاً"})
-            emit(f"({i+1}/{total}) {display}: موجودة مسبقاً", 0.4 + 0.55 * (i + 1) / total)
+            emit(f"({i+1}/{total}) ↺ {display}: موجودة مسبقاً", 0.6 + 0.38 * (i + 1) / total)
             continue
         people = []
         for person in (co.get("people") or [])[:12]:
@@ -124,12 +160,13 @@ def research_and_add_companies(claude, odoo, memory, query: str, count: int = 10
                            + "؛ ".join(people), entity=display, source="research", importance=0.8)
             except Exception:
                 pass
-            emit(f"({i+1}/{total}) ✅ {display}: أُضيفت مع {n_people} مدير", 0.4 + 0.55 * (i + 1) / total)
+            emit(f"({i+1}/{total}) ✅ {display}: أُضيفت مع {n_people} مدير", 0.6 + 0.38 * (i + 1) / total)
         except Exception as e:
             errors += 1
             results.append({"company": display, "status": f"خطأ: {str(e)[:120]}"})
-            emit(f"({i+1}/{total}) ⚠️ {display}: {str(e)[:80]}", 0.4 + 0.55 * (i + 1) / total)
+            emit(f"({i+1}/{total}) ⚠️ {display}: {str(e)[:80]}", 0.6 + 0.38 * (i + 1) / total)
 
     emit("اكتمل الإدراج.", 1.0)
     summary = f"تمت معالجة {len(companies)} شركة: أُضيفت {added}، موجودة مسبقاً {skipped}، أخطاء {errors}."
-    return {"ok": True, "summary": summary, "added": added, "skipped": skipped, "errors": errors, "results": results}
+    return {"ok": True, "summary": summary, "requested": count, "found": len(companies),
+            "added": added, "skipped": skipped, "errors": errors, "results": results}

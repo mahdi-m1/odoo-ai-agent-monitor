@@ -74,11 +74,10 @@ class AIAgent:
         # Direct agentic action (research companies + insert into Odoo) → background task
         act = self._detect_action(msg)
         if act and act["kind"] == "companies":
-            query = "أكبر الشركات في البحرين ومديريها التنفيذيين" if ("البحرين" in msg or "bahrain" in msg.lower()) else msg
-            tid = self.start_task("companies", f"بحث وإدراج {act['count']} شركة", 
-                lambda progress, q=query, n=act["count"]: actions.research_and_add_companies(
+            tid = self.start_task("companies", f"بحث وإدراج {act['count']} شركة",
+                lambda progress, q=msg, n=act["count"]: actions.research_and_add_companies(
                     self.claude, self.odoo, self.memory, q, count=n, model=self.claude.model, progress=progress))
-            return f"\u0000TASK:{tid}\u0000بدأت مهمة: البحث عن {act['count']} شركة ومديريها وإدراجها في قاعدة البيانات. تابع التقدّم أدناه."
+            return f"\u0000TASK:{tid}\u0000بدأت مهمة: البحث عن {act['count']} شركة ومديريها وإدراجها في قاعدة البيانات. قد تستغرق عدة دقائق للأعداد الكبيرة — تابع التقدّم أدناه."
 
         # "جديد: ..." / "بدون ذاكرة ..." bypass the answer cache for this question
         fresh = False
@@ -181,13 +180,18 @@ class AIAgent:
     def _detect_action(self, msg: str) -> Optional[Dict[str, Any]]:
         """Recognize 'research + add companies' intents so they run as a direct action, not just chat."""
         low = msg.lower()
-        has_add = any(w in msg for w in ("أدرج", "ادرج", "أضف", "اضف", "احفظ", "سجّل", "سجل", "أدخل", "ادخل")) or "add" in low
-        has_fetch = any(w in msg for w in ("اجلب", "أجلب", "ابحث", "جد", "هات")) or any(w in low for w in ("fetch", "search", "find"))
-        has_companies = any(w in msg for w in ("شركات", "شركة", "مؤسسات", "بنوك")) or "compan" in low
-        if has_companies and (has_add or (has_fetch and ("قاعدة" in msg or "database" in low or "odoo" in low or has_add))):
-            mnum = re.search(r"(\d{1,3})", msg)
-            count = min(int(mnum.group(1)), 40) if mnum else 10
-            return {"kind": "companies", "count": count, "query": msg}
+        has_add = any(w in msg for w in ("أدرج", "ادرج", "أضف", "اضف", "اضاف", "أضاف", "اضافة", "إضافة",
+                                         "احفظ", "خزن", "خزّن", "سجّل", "سجل", "أدخل", "ادخل")) or "add" in low or "insert" in low
+        has_fetch = any(w in msg for w in ("اجلب", "أجلب", "ابحث", "جد", "هات", "اجمع", "جمّع", "جمع"))             or any(w in low for w in ("fetch", "search", "find", "collect", "list"))
+        has_companies = any(w in msg for w in ("شركات", "شركة", "مؤسسات", "مؤسسة", "بنوك", "بنك")) or "compan" in low or "bank" in low
+        superlative = any(w in msg for w in ("أكبر", "اكبر", "أهم", "اهم", "كبرى", "الكبرى", "أشهر", "اشهر")) or any(w in low for w in ("largest", "biggest", "top", "major"))
+        plural = any(w in msg for w in ("شركات", "مؤسسات", "بنوك"))
+        mnum = re.search(r"(\d{1,4})", msg)
+        has_number = bool(mnum)
+        # Add-intent alone, or fetch-intent qualified by "largest / plural / a number" → run the action.
+        if has_companies and (has_add or (has_fetch and (superlative or plural or has_number))):
+            count = min(int(mnum.group(1)), 100) if mnum else 10
+            return {"kind": "companies", "count": max(1, count), "query": msg}
         return None
 
     def _try_local_commands(self, msg: str) -> Optional[str]:
