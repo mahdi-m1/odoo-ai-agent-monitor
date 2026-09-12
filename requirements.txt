@@ -32,6 +32,7 @@ numpy>=1.26.0
 # Backup: Google Drive auth
 PyJWT>=2.9.0
 pywebpush>=1.14.0  # Web Push notifications
+python-docx>=1.1.0  # Word (.docx) report export
 cryptography>=43.0.0
 
 # Optional: JS page rendering for interactive official portals (run once: python -m playwright install chromium)
