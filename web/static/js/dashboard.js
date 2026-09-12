@@ -90,6 +90,11 @@ list.addEventListener('click', async (e) => {
     const r = await api('/api/reports/' + encodeURIComponent(name));
     viewer.innerHTML = r.error ? ('خطأ: ' + r.error) : mdToHtml(r.content || '');
     viewer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else if (e.target.classList.contains('btn-email')) {
+    e.target.disabled = true; toast('جاري الإرسال بالبريد…');
+    const r = await api('/api/reports/' + encodeURIComponent(name) + '/email', 'POST');
+    e.target.disabled = false;
+    toast(r.ok ? ('أُرسل إلى ' + r.to) : ('تعذّر الإرسال: ' + (r.error || r.skipped || '')), r.ok ? '' : 'error');
   } else if (e.target.classList.contains('btn-arch')) {
     const archived = item.dataset.archived === '1';
     const r = await api('/api/reports/' + encodeURIComponent(name) + (archived ? '/unarchive' : '/archive'), 'POST');
@@ -141,6 +146,7 @@ async function refreshReports() {
       `<a class="ghost small" href="/api/reports/${encodeURIComponent(r.name)}/export?format=pdf">PDF</a>` +
       `<a class="ghost small" href="/api/reports/${encodeURIComponent(r.name)}/export?format=docx">Word</a>` +
       `<a class="ghost small" href="/api/reports/${encodeURIComponent(r.name)}/download">MD</a>` +
+      `<button type="button" class="ghost small btn-email">📧 بريد</button>` +
       `<button type="button" class="ghost small btn-arch">${r.archived ? 'إلغاء الأرشفة' : 'أرشفة'}</button>` +
       `<button type="button" class="ghost small danger btn-del">حذف</button></div>`;
     list.appendChild(div);

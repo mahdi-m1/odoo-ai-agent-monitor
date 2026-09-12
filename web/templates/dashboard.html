@@ -37,6 +37,7 @@
             <a class="ghost small" href="/api/reports/{{ r.name }}/export?format=pdf">PDF</a>
             <a class="ghost small" href="/api/reports/{{ r.name }}/export?format=docx">Word</a>
             <a class="ghost small" href="/api/reports/{{ r.name }}/download">MD</a>
+            <button type="button" class="ghost small btn-email">📧 بريد</button>
             <button type="button" class="ghost small btn-arch">{{ 'إلغاء الأرشفة' if r.archived else 'أرشفة' }}</button>
             <button type="button" class="ghost small danger btn-del">حذف</button>
           </div>

@@ -6,7 +6,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -24,6 +24,7 @@ if sf.exists():
 
 from agent import agent_settings
 from agent import backup as backup_mod
+from agent import email_sender as email_mod
 from agent import memory as memory_mod
 from agent import push as push_mod
 from agent.gdrive import GDrive, GDriveError, save_credentials, unlink_drive
@@ -170,6 +171,26 @@ class BackupSettingsIn(BaseModel):
     include_reports: Optional[bool] = None
 
 
+class EmailSettingsIn(BaseModel):
+    enabled: Optional[bool] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    security: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    from_name: Optional[str] = None
+    from_addr: Optional[str] = None
+    recipients: Optional[Any] = None          # نص مفصول أو قائمة
+    attach_pdf: Optional[bool] = None
+    attach_docx: Optional[bool] = None
+    on_weekly: Optional[bool] = None
+    on_any_report: Optional[bool] = None
+    frequency: Optional[str] = None
+    hour: Optional[int] = None
+    day: Optional[str] = None
+    schedule_action: Optional[str] = None
+
+
 class RestoreIn(BaseModel):
     name: Optional[str] = None       # local file name
     drive_id: Optional[str] = None   # or a Google Drive file id
@@ -228,7 +249,8 @@ def memory_page(request: Request):
 @app.get("/backup", response_class=HTMLResponse)
 def backup_page(request: Request):
     return templates.TemplateResponse(request, "backup.html", {"request": request, "settings": backup_mod.public_settings(), "drive": GDrive().status(),
-                                                               "local": backup_mod.list_local(), "frequencies": backup_mod.FREQUENCIES, "days": backup_mod.DAYS})
+                                                               "local": backup_mod.list_local(), "frequencies": backup_mod.FREQUENCIES, "days": backup_mod.DAYS,
+                                                               "email": email_mod.public_settings(), "securities": email_mod.SECURITY})
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -740,6 +762,36 @@ def api_drive_test():
         return {"ok": True, "folder_id": gd.ensure_folder(), "backups": len(gd.list_backups()), "account": gd.status().get("account")}
     except GDriveError as e:
         return {"ok": False, "error": str(e)}
+
+
+# ---- Email delivery of reports ----
+@app.get("/api/email/settings")
+def api_email_settings():
+    return email_mod.public_settings()
+
+
+@app.post("/api/email/settings")
+def api_email_settings_set(body: EmailSettingsIn):
+    try:
+        return email_mod.set_settings(**body.model_dump(exclude_none=True))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/email/test-connection")
+def api_email_test_connection():
+    return email_mod.test_connection()
+
+
+@app.post("/api/email/test")
+def api_email_test():
+    return email_mod.send_test()
+
+
+@app.post("/api/reports/{name}/email")
+def api_report_email(name: str):
+    r = email_mod.send_report(name)
+    return r if r.get("ok") else JSONResponse(r, status_code=400)
 
 
 # ---- Web Push notifications ----

@@ -24,14 +24,15 @@ from typing import Any, Dict, List, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from agent import schedule_util
 from agent.config_store import DATA_DIR, ROOT, JsonStore
 
 logger = logging.getLogger(__name__)
 
 BACKUP_DIR = DATA_DIR / "backups"
 APP_VERSION = "1.4.0"
-FREQUENCIES = ("off", "hourly", "every6h", "daily", "weekly")
-DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+FREQUENCIES = schedule_util.FREQUENCIES
+DAYS = schedule_util.DAYS
 DEFAULTS = {
     "frequency": "daily", "hour": 3, "day": "sunday",
     "keep_local": 7, "keep_remote": 14,
@@ -77,44 +78,12 @@ def _record(result: Dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------- schedule
-def _period(f: str) -> Optional[timedelta]:
-    return {"hourly": timedelta(hours=1), "every6h": timedelta(hours=6), "daily": timedelta(days=1), "weekly": timedelta(days=7)}.get(f)
-
-
-def _current_slot(s: Dict[str, Any], now: datetime) -> Optional[datetime]:
-    """Most recent scheduled time <= now (None when frequency is off)."""
-    f = s["frequency"]
-    if f == "off":
-        return None
-    if f in ("hourly", "every6h"):
-        step = _period(f)
-        base = now.replace(minute=0, second=0, microsecond=0)
-        return base - timedelta(hours=base.hour % int(step.total_seconds() // 3600))
-    slot = now.replace(hour=int(s["hour"]), minute=0, second=0, microsecond=0)
-    if f == "weekly":
-        slot -= timedelta(days=(slot.weekday() - DAYS.index(s["day"])) % 7)
-    if slot > now:
-        slot -= _period(f)
-    return slot
-
-
 def is_due(s: Optional[Dict[str, Any]] = None) -> bool:
-    s = s or get_settings()
-    slot = _current_slot(s, datetime.now())
-    if slot is None:
-        return False
-    last = datetime.fromisoformat(s["last_backup"]) if s.get("last_backup") else None
-    return last is None or last < slot
+    return schedule_util.is_due(s or get_settings(), "last_backup")
 
 
 def next_due(s: Optional[Dict[str, Any]] = None) -> Optional[str]:
-    s = s or get_settings()
-    now = datetime.now()
-    slot = _current_slot(s, now)
-    if slot is None:
-        return None
-    nxt = slot if is_due(s) else slot + _period(s["frequency"])
-    return nxt.isoformat(timespec="minutes")
+    return schedule_util.next_due(s or get_settings(), "last_backup")
 
 
 # ---------------------------------------------------------------- crypto
@@ -141,8 +110,11 @@ def decrypt_bytes(blob: bytes, passphrase: str) -> bytes:
 def _collect_files(include_reports: bool, include_env: bool) -> List[Path]:
     files: List[Path] = []
     for p in sorted(DATA_DIR.glob("*.json")):
-        if p.name not in ("gdrive_token.json",):  # token is re-created on link; credentials file IS included
-            files.append(p)
+        if p.name == "gdrive_token.json":  # re-created on link
+            continue
+        if p.name == "email_secret.json" and not include_env:
+            continue  # SMTP password: only ship it inside an ENCRYPTED archive (same rule as .env)
+        files.append(p)
     sched = ROOT / "config" / "schedule.env"
     if sched.exists():
         files.append(sched)
@@ -258,6 +230,8 @@ def restore_backup(path: Path, passphrase: Optional[str] = None, restore_env: bo
                 continue
             if rel.name == ".env" and not restore_env:
                 continue
+            if rel.name == "email_secret.json":
+                continue  # keep the live SMTP password; never overwritten by a restore
             if rel.name == "backup_settings.json":
                 # keep the current schedule/passphrase — only merge nothing; the archive's copy is informational
                 continue

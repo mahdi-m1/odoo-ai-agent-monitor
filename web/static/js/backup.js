@@ -132,3 +132,59 @@ document.getElementById('btn-push-disable')?.addEventListener('click', async () 
   pushStatus();
 });
 if (document.getElementById('push-status')) pushStatus();
+
+
+// ---- Email (SMTP) settings ----
+const MAIL_PRESETS = { gmail: { host: 'smtp.gmail.com', port: 465, security: 'ssl' }, outlook: { host: 'smtp.office365.com', port: 587, security: 'starttls' } };
+document.getElementById('m-preset')?.addEventListener('change', (e) => {
+  const p = MAIL_PRESETS[e.target.value]; if (!p) return;
+  document.getElementById('m-host').value = p.host;
+  document.getElementById('m-port').value = p.port;
+  document.getElementById('m-security').value = p.security;
+  toast('تم تعبئة إعدادات ' + e.target.value + ' — أكمل البريد وكلمة مرور التطبيق');
+});
+function mailBody() {
+  const body = {
+    enabled: document.getElementById('m-enabled').checked,
+    host: document.getElementById('m-host').value.trim(),
+    port: +document.getElementById('m-port').value,
+    security: document.getElementById('m-security').value,
+    username: document.getElementById('m-username').value.trim(),
+    from_name: document.getElementById('m-from-name').value.trim(),
+    from_addr: document.getElementById('m-from-addr').value.trim(),
+    recipients: document.getElementById('m-recipients').value,
+    attach_pdf: document.getElementById('m-pdf').checked,
+    attach_docx: document.getElementById('m-docx').checked,
+    on_weekly: document.getElementById('m-on-weekly').checked,
+    on_any_report: document.getElementById('m-on-any').checked,
+    frequency: document.getElementById('m-freq').value,
+    hour: +document.getElementById('m-hour').value,
+    day: document.getElementById('m-day').value,
+    schedule_action: document.getElementById('m-action').value,
+  };
+  const pw = document.getElementById('m-password').value;   // أرسل السر فقط إن كان غير فارغ
+  if (pw) body.password = pw;
+  return body;
+}
+async function saveMail() {
+  const d = await api('/api/email/settings', 'POST', mailBody());
+  if (d.error) { show('mail-result', 'خطأ: ' + d.error); toast(d.error, 'error'); return null; }
+  show('mail-result', 'تم الحفظ · التالي: ' + (d.next_due || '—'));
+  document.getElementById('m-password').value = '';
+  return d;
+}
+document.getElementById('btn-mail-save')?.addEventListener('click', async () => { if (await saveMail()) toast('حُفظت إعدادات البريد ✅'); });
+document.getElementById('btn-mail-conn')?.addEventListener('click', async () => {
+  if (!(await saveMail())) return;
+  show('mail-result', 'جاري اختبار الاتصال…');
+  const d = await api('/api/email/test-connection', 'POST');
+  show('mail-result', d.ok ? '✅ ' + d.detail : '⚠️ ' + d.error);
+  toast(d.ok ? 'الاتصال ناجح ✅' : 'فشل الاتصال', d.ok ? '' : 'error');
+});
+document.getElementById('btn-mail-test')?.addEventListener('click', async () => {
+  if (!(await saveMail())) return;
+  show('mail-result', 'جاري الإرسال…');
+  const d = await api('/api/email/test', 'POST');
+  show('mail-result', d.ok ? '✅ أُرسلت رسالة تجريبية إلى ' + d.to : '⚠️ ' + (d.error || d.skipped));
+  toast(d.ok ? 'أُرسلت الرسالة التجريبية ✅' : 'تعذّر الإرسال', d.ok ? '' : 'error');
+});

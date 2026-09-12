@@ -135,6 +135,16 @@ class WeeklyReportGenerator:
             get_memory().add("report", f"تقرير {path.name}: {text[:1500]}", source=str(path.name), importance=0.7, meta={"path": str(path), "focus": custom_focus, "kind": kind})
         except Exception as e:
             logger.warning("memory: %s", e)
+        result = {"ok": True, "path": str(path), "name": path.name, "kind": kind, "title": title, "note_id": note_id, "chars": len(text)}
+        try:  # email delivery must never fail report generation
+            from agent import email_sender
+            mail = email_sender.maybe_send_report(result)
+            result["email"] = mail
+            if mail.get("ok") and progress:
+                progress(f"أُرسل بالبريد إلى {mail.get('to', '')}", 0.98)
+        except Exception as e:
+            logger.warning("email hook failed: %s", e)
+            result["email"] = {"ok": False, "error": str(e)[:200]}
         if progress:
             progress("اكتمل.", 1.0)
-        return {"ok": True, "path": str(path), "name": path.name, "kind": kind, "title": title, "note_id": note_id, "chars": len(text)}
+        return result

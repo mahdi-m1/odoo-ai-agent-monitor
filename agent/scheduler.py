@@ -16,6 +16,7 @@ from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
 from agent import backup as backup_mod
+from agent import email_sender as email_mod
 from agent import push as push_mod
 from agent.claude_cli import ClaudeCLI
 from agent.memory import get_memory
@@ -78,6 +79,16 @@ def job_backup_tick():
         logger.exception("Backup tick failed: %s", e)
 
 
+def job_email_tick():
+    """Every few minutes: send the scheduled report email if the user's schedule says it's due."""
+    try:
+        if email_mod.is_due():
+            logger.info("Scheduled report email due...")
+            logger.info("Email: %s", email_mod.send_scheduled())
+    except Exception as e:
+        logger.exception("Email tick failed: %s", e)
+
+
 def job_memory_consolidate():
     logger.info("Memory consolidation...")
     try:
@@ -110,6 +121,7 @@ def main():
         replace_existing=True,
     )
     scheduler.add_job(job_backup_tick, "interval", minutes=5, id="backup_tick", replace_existing=True)
+    scheduler.add_job(job_email_tick, "interval", minutes=5, id="email_tick", replace_existing=True)
     scheduler.add_job(job_memory_consolidate, CronTrigger(hour=3, minute=30), id="memory_consolidate", replace_existing=True)
     logger.info(
         "Scheduler up. Weekly=%s %02d:00 daily_scan=%02d:00 tz=%s now=%s",

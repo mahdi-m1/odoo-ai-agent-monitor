@@ -48,6 +48,68 @@
     </section>
 
     <section class="card full">
+      <h2>البريد الإلكتروني — إرسال التقارير آلياً</h2>
+      <p class="muted">اربط حساب بريد عبر SMTP لإرسال التقارير (متن منسّق + مرفقَي PDF و Word). لحساب Gmail استخدم <b>App Password</b> (يتطلّب التحقق بخطوتين) — لا تعمل كلمة المرور العادية.</p>
+      <div class="row" style="margin-bottom:.5rem">
+        <label class="inline">جاهز:
+          <select id="m-preset">
+            <option value="">مخصّص</option>
+            <option value="gmail">Gmail</option>
+            <option value="outlook">Outlook / Office365</option>
+          </select>
+        </label>
+        <label class="inline"><input type="checkbox" id="m-enabled" {% if email.enabled %}checked{% endif %} /> تفعيل الإرسال بالبريد</label>
+      </div>
+      <div class="form">
+        <div class="row">
+          <input id="m-host" placeholder="مضيف SMTP (smtp.gmail.com)" value="{{ email.host }}" />
+          <input id="m-port" type="number" min="1" max="65535" placeholder="المنفذ" value="{{ email.port }}" style="max-width:7rem" />
+          <label class="inline">الأمان
+            <select id="m-security">{% for sec in securities %}<option value="{{ sec }}" {% if email.security == sec %}selected{% endif %}>{{ sec }}</option>{% endfor %}</select>
+          </label>
+        </div>
+        <div class="row">
+          <input id="m-username" placeholder="اسم المستخدم (بريدك)" value="{{ email.username }}" />
+          <input id="m-password" type="password" placeholder="{% if email.password_set %}كلمة المرور محفوظة — اتركها فارغة للإبقاء{% else %}App Password / كلمة مرور SMTP{% endif %}" />
+        </div>
+        <div class="row">
+          <input id="m-from-name" placeholder="اسم المُرسِل" value="{{ email.from_name }}" />
+          <input id="m-from-addr" placeholder="بريد المُرسِل" value="{{ email.from_addr }}" />
+        </div>
+        <textarea id="m-recipients" rows="2" placeholder="المستلمون — بريد واحد أو أكثر مفصولة بفاصلة أو سطر جديد">{{ email.recipients | join('
+') }}</textarea>
+        <div class="checks">
+          <label><input type="checkbox" id="m-pdf" {% if email.attach_pdf %}checked{% endif %} /> مرفق PDF</label>
+          <label><input type="checkbox" id="m-docx" {% if email.attach_docx %}checked{% endif %} /> مرفق Word</label>
+          <label><input type="checkbox" id="m-on-weekly" {% if email.on_weekly %}checked{% endif %} /> مع التقرير الأسبوعي المجدول</label>
+          <label><input type="checkbox" id="m-on-any" {% if email.on_any_report %}checked{% endif %} /> عند إنشاء أي تقرير</label>
+        </div>
+        <div class="row">
+          <label class="inline">جدول بريد مستقل
+            <select id="m-freq">{% for f in frequencies %}<option value="{{ f }}" {% if email.frequency == f %}selected{% endif %}>{{ f }}</option>{% endfor %}</select>
+          </label>
+          <label class="inline">الساعة <input id="m-hour" type="number" min="0" max="23" value="{{ email.hour }}" style="width:4rem" /></label>
+          <label class="inline">اليوم
+            <select id="m-day">{% for d in days %}<option value="{{ d }}" {% if email.day == d %}selected{% endif %}>{{ d }}</option>{% endfor %}</select>
+          </label>
+          <label class="inline">الإجراء
+            <select id="m-action">
+              <option value="latest" {% if email.schedule_action == 'latest' %}selected{% endif %}>أرسل أحدث تقرير</option>
+              <option value="generate" {% if email.schedule_action == 'generate' %}selected{% endif %}>ولّد تقريراً جديداً ثم أرسله</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <button type="button" id="btn-mail-save">حفظ</button>
+          <button type="button" class="ghost" id="btn-mail-conn">اختبار الاتصال</button>
+          <button type="button" class="ghost" id="btn-mail-test">إرسال تجريبي</button>
+        </div>
+        <p class="muted">آخر إرسال: {{ email.last_sent or '—' }} · التالي (الجدول المستقل): {{ email.next_due or '—' }}</p>
+      </div>
+      <pre id="mail-result" class="result" style="display:none"></pre>
+    </section>
+
+    <section class="card full">
       <h2>التنبيهات الفورية (Push)</h2>
       <p class="muted">إشعارات تصل جهازك عند رصد أحداث جديدة (تعيينات/أخبار/تشريعات) — حتى والموقع مغلق.</p>
       <div class="row">
